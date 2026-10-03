@@ -163,9 +163,10 @@ final class TrioOverlay {
         if (shown) {
             return;
         }
-        final boolean hostVisible = host.isShown()
-                && host.getWindowVisibility() == View.VISIBLE
-                && host.getAlpha() > 0f;
+        // The window's own visibility is not asked about here: the window being
+        // hidden is the very thing this call is undoing, and its visibility
+        // follows the views inside it. Only the view's own state is read.
+        final boolean hostVisible = host.isShown() && host.getAlpha() > 0f;
         host.getLocationOnScreen(location);
         final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
         final boolean onScreen = location[0] + host.getWidth() > 0
