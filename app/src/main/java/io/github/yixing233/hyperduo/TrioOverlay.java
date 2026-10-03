@@ -160,10 +160,9 @@ final class TrioOverlay {
      * bar that is off screen or covered keeps it hidden.
      */
     void showAgain() {
-        if (!hiddenByBusy) {
+        if (shown) {
             return;
         }
-        hiddenByBusy = false;
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
                 && host.getAlpha() > 0f;
