@@ -1074,34 +1074,51 @@ final class TrioHooks {
     }
 
     /**
+     * The one hooker both expansion entry points share: the panel's injector
+     * step and the controller's own setter. Whichever one a given drag path
+     * takes, the window hears about it on the same frame.
+     */
+    private static final XposedInterface.Hooker SHADE_HOOKER = new XposedInterface.Hooker() {
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            final Object result = chain.proceed();
+            final Object height = chain.getArg(0);
+            if (height instanceof Float) {
+                TrioOverlay.onShadeHeight((Float) height);
+            }
+            return result;
+        }
+    };
+
+    /**
      * Learns when the shade is being pulled down, so the glyph window can leave
      * the screen on the first frame of the drag instead of after the animation.
      *
-     * <p>{@code setExpandedHeightInternal} is the panel's own expansion step:
-     * every drag frame and every fling frame goes through it, including the
-     * paths that never touch {@code NotificationPanelViewController}. The height
-     * is zero while the panel is closed, so a value above zero is the earliest
+     * <p>Two entry points are hooked because MIUI's drag path does not go
+     * through the controller's setter: the touch handler calls the injector's
+     * {@code setExpandedHeightInternal} directly, while the animation and the
+     * programmatic paths go through {@code setExpandedHeight}. The height is
+     * zero while the panel is closed, so a value above zero is the earliest
      * honest signal that the bar is no longer standing still.
      */
     private static int hookShadeExpansion(XposedModule module, ClassLoader cl) {
+        int n = 0;
         final Class<?> injector = Refl.cls(
                 "com.android.systemui.shade.NotificationPanelViewControllerInjector", cl);
-        if (injector == null) {
-            log(module, "NotificationPanelViewControllerInjector missing");
-            return 0;
+        if (injector != null) {
+            n += hook(module, Refl.method(injector, "setExpandedHeightInternal", float.class),
+                    "hyperduo-shade-internal", SHADE_HOOKER);
         }
-        return hook(module, Refl.method(injector, "setExpandedHeightInternal", float.class),
-                "hyperduo-shade", new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        final Object result = chain.proceed();
-                        final Object height = chain.getArg(0);
-                        if (height instanceof Float) {
-                            TrioOverlay.onShadeHeight((Float) height);
-                        }
-                        return result;
-                    }
-                });
+        final Class<?> panel = Refl.cls(
+                "com.android.systemui.shade.NotificationPanelViewController", cl);
+        if (panel != null) {
+            n += hook(module, Refl.method(panel, "setExpandedHeight", float.class),
+                    "hyperduo-shade-height", SHADE_HOOKER);
+        }
+        if (n == 0) {
+            log(module, "shade expansion hooks missing");
+        }
+        return n;
     }
 
     // ------------------------------------------------------------- registrations

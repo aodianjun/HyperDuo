@@ -78,6 +78,8 @@ final class TrioOverlay {
             return;
         }
         sShadeBusy = busy;
+        TrioHooks.log(TrioHooks.LOG_INFO, "shade: height=" + height
+                + " busy=" + busy + " windows=" + LIVE.size());
         if (busy) {
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
