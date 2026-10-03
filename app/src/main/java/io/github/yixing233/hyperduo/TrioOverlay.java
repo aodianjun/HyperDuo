@@ -164,8 +164,15 @@ final class TrioOverlay {
         }
         final View owner = sOwner;
         if (owner != null && owner != host) {
-            release(host);
-            return null;
+            // One window, and it belongs to whichever candidate is on screen: the
+            // bar's own row while the bar is there, the shade's copy of it while
+            // the shade is open over a full-screen app. Without the handover the
+            // window stayed with a host that was no longer drawn anywhere.
+            if (onScreenNow(owner) || !onScreenNow(host)) {
+                release(host);
+                return null;
+            }
+            release(owner);
         }
         sOwner = host;
         TrioOverlay overlay = LIVE.get(host);
@@ -244,6 +251,25 @@ final class TrioOverlay {
             sb.append('<').append(p.getClass().getSimpleName());
         }
         return sb.toString();
+    }
+
+    /**
+     * Whether a view is really on screen right now: attached, in a visible window,
+     * in a window that is not faded out, told by the system that the bar is
+     * visible, and inside the screen's rectangle.
+     */
+    private static boolean onScreenNow(View view) {
+        if (view == null || !view.isShown()
+                || view.getWindowVisibility() != View.VISIBLE
+                || view.getAlpha() <= 0f || windowAlpha(view) <= 0f
+                || !insetsShowBar(view)) {
+            return false;
+        }
+        final int[] loc = new int[2];
+        view.getLocationOnScreen(loc);
+        final DisplayMetrics metrics = view.getResources().getDisplayMetrics();
+        return loc[0] + view.getWidth() > 0 && loc[0] < metrics.widthPixels
+                && loc[1] + view.getHeight() > 0 && loc[1] < metrics.heightPixels;
     }
 
     /** True while some host owns the glyph window. */

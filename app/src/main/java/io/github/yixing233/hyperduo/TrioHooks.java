@@ -1639,6 +1639,16 @@ final class TrioHooks {
             if (name.contains("MiuiPhoneStatusBarView")) {
                 return true;
             }
+            // The shade carries its own copy of the bar's icons at the top of the
+            // notification panel. With a full-screen app in front, the bar itself
+            // is hidden and that copy is the one on screen - so it has to be able
+            // to take the glyph over, or pulling the shade down over a game shows
+            // nothing at all.
+            if (name.contains("ControlCenterStatusBarIcon")
+                    || name.contains("ControlCenterFakeStatusIcons")
+                    || name.contains("ShadeHeaderContainer")) {
+                return true;
+            }
         }
         return false;
     }
