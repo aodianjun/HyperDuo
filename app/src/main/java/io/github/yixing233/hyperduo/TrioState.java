@@ -87,6 +87,8 @@ final class TrioState {
 
     /** Telephony app context, captured from the first hooked view. */
     private static volatile Context sContext;
+    /** Last tint line logged, so a per-frame call site logs only when it changes. */
+    private static volatile String sLastTint;
     /** Next {@link SystemClock#elapsedRealtime} at which telephony may be polled. */
     private static volatile long sSimsDueAt;
     /** How often telephony is polled. Signal strength is not a per-frame value. */
@@ -399,17 +401,34 @@ final class TrioState {
 
     /** The plain icon colour: what MIUI would paint the battery icon in. */
     int foreground() {
-        // The ordinary foreground follows the system's night mode: white on a dark
-        // bar, black on a light one. MIUI's own tint fields used to decide this,
-        // but on the reference device they report a light colour on a light bar -
-        // which is how the glyph ended up white on white, and why this reads the
-        // system theme instead.
-        //
-        // Only this one colour flips. The role colours - charging, low, critical -
-        // keep coming from the user's own on-dark / on-light pairs
-        // ({@code Prefs.KEY_COLOR_*_ON_DARK} / {@code _ON_LIGHT}), which is the
-        // mechanism that was already here for exactly this purpose.
-        return nightMode() ? 0xFFFFFFFF : 0xFF000000;
+        // The style follows the bar, not the system theme: MIUI's own fields say
+        // what this bar is drawing on, and they are the same pair its icons use.
+        // They are the first and only real answer here; the system's night mode is
+        // kept as the last resort for a host whose fields never arrived (a host
+        // inflated a moment ago, a bar whose tint never came through).
+        int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        if (c == 0) {
+            c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
+        }
+        noteTint(c);
+        return c;
+    }
+
+    /**
+     * Records the tint inputs once per change, so the values MIUI is handing over
+     * can be read off a device instead of guessed at.
+     */
+    private void noteTint(int resolved) {
+        final String note = "tint: useTint=" + useTint
+                + " tint=" + Integer.toHexString(tintColor)
+                + " light=" + Integer.toHexString(lightColor)
+                + " dark=" + Integer.toHexString(darkColor)
+                + " intensity=" + darkIntensity
+                + " -> " + Integer.toHexString(resolved);
+        if (!note.equals(sLastTint)) {
+            sLastTint = note;
+            TrioHooks.log(TrioHooks.LOG_INFO, note);
+        }
     }
 
     /** The system's night mode, as the configuration currently reports it. */
