@@ -1625,11 +1625,14 @@ final class TrioHooks {
         if (host == null) {
             return false;
         }
-        // The row this module owns is the one inside MiuiPhoneStatusBarView. The
-        // keyguard and the control centre inflate the same battery view into
-        // MiuiKeyguardStatusBarView and their own QS headers, and a glyph window
-        // opened for one of those would float over a status bar that knows nothing
-        // about it.
+        // The row this module owns is the one inside MiuiPhoneStatusBarView, and it
+        // is the only row that may have a window of its own. Everything else that
+        // carries a battery view - the keyguard, the control centre, the shade's own
+        // copy of the bar at the top of the panel - draws the glyph in its own views
+        // instead, which is the path that was always there and needs no window. That
+        // is also why the window is only ever open while the bar is standing still:
+        // pull the panel down and the bar's row stops being the one on screen, the
+        // window goes with it, and the panel's copy takes over by drawing itself.
         //
         // Matched by walking the parents rather than by comparing root views or
         // by asking sStatusIconContainer: mStatusBarStatusIcons can point at a
@@ -1643,16 +1646,6 @@ final class TrioHooks {
                 return false;
             }
             if (name.contains("MiuiPhoneStatusBarView")) {
-                return true;
-            }
-            // The shade carries its own copy of the bar's icons at the top of the
-            // notification panel. With a full-screen app in front, the bar itself
-            // is hidden and that copy is the one on screen - so it has to be able
-            // to take the glyph over, or pulling the shade down over a game shows
-            // nothing at all.
-            if (name.contains("ControlCenterStatusBarIcon")
-                    || name.contains("ControlCenterFakeStatusIcons")
-                    || name.contains("ShadeHeaderContainer")) {
                 return true;
             }
         }

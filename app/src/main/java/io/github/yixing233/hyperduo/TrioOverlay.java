@@ -176,15 +176,10 @@ final class TrioOverlay {
         }
         final View owner = sOwner;
         if (owner != null && owner != host) {
-            // One window, and it belongs to whichever candidate is on screen: the
-            // bar's own row while the bar is there, the shade's copy of it while
-            // the shade is open over a full-screen app. Without the handover the
-            // window stayed with a host that was no longer drawn anywhere.
-            if (onScreenNow(owner) || !onScreenNow(host)) {
-                release(host);
-                return null;
-            }
-            release(owner);
+            // One window per bar: MIUI inflates more than one battery view into the
+            // same row, and two windows in the same spot draw the glyph twice.
+            release(host);
+            return null;
         }
         sOwner = host;
         TrioOverlay overlay = LIVE.get(host);
