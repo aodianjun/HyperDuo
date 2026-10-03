@@ -67,11 +67,32 @@ final class TrioOverlay {
     /** True while the bar is not standing still. */
     private static volatile boolean sShadeBusy;
 
-    /** Both overview signals arrive on the UI thread, so this handler is too. */
+    /** Every signal that sets the flag arrives on the UI thread. */
     private static final android.os.Handler BUSY_HANDLER =
             new android.os.Handler(android.os.Looper.getMainLooper());
 
-    /** Lets the bar draw again once the launcher stops reporting progress. */
+    /**
+     * The panel's own height is the truth about whether the shade is open; the
+     * expansion callback is only the wake-up call. Not every way a panel closes
+     * goes through it - SystemUI can come back with the shade already open and
+     * no callback at all - so while the flag is set the panel is asked again,
+     * and the flag is dropped the moment the panel says it is shut.
+     */
+    private static final Runnable RECHECK = new Runnable() {
+        @Override
+        public void run() {
+            if (!sShadeBusy) {
+                return;
+            }
+            if (!TrioHooks.shadeExpanded()) {
+                setBusy(false, "shade closed");
+                return;
+            }
+            BUSY_HANDLER.postDelayed(this, 400);
+        }
+    };
+
+    /** Lets the bar draw again once the launcher stops reporting. */
     private static final Runnable CLEAR_OVERVIEW = new Runnable() {
         @Override
         public void run() {
@@ -94,35 +115,26 @@ final class TrioOverlay {
      * its own cannot follow that, so for the duration the glyph goes back to
      * being painted by the bar itself.
      */
-    static void onOverviewProgress(float progress) {
-        if (progress > 0.01f) {
-            setBusy(true, "overview progress=" + progress);
-        } else {
-            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
-            BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 250);
-        }
-    }
-
-    /** The gesture is over; hold a little longer, then let the bar draw again. */
-    static void onOverviewGestureDone() {
+    static void onOverviewPulse() {
+        setBusy(true, "overview");
         BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
-        BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 400);
+        BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 600);
     }
 
     private static void setBusy(boolean busy, String why) {
-        if (busy) {
-            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
-        }
         if (busy == sShadeBusy) {
             return;
         }
         sShadeBusy = busy;
         TrioHooks.log(TrioHooks.LOG_INFO, "busy=" + busy + " (" + why
                 + ") windows=" + LIVE.size());
+        BUSY_HANDLER.removeCallbacks(RECHECK);
         if (busy) {
+            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
             }
+            BUSY_HANDLER.postDelayed(RECHECK, 400);
         }
         // Either way the row has to draw again: with the window gone it paints
         // the glyph itself, and with the window back it steps aside for it.

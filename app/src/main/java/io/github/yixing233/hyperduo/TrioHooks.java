@@ -1098,6 +1098,7 @@ final class TrioHooks {
             final Object result = chain.proceed();
             final Object height = chain.getArg(0);
             if (height instanceof Float) {
+                noteShadeInjector(chain.getThisObject());
                 TrioOverlay.onShadeHeight((Float) height);
             }
             return result;
@@ -1137,44 +1138,74 @@ final class TrioHooks {
 
     /**
      * Hears the launcher's overview (recents) gesture. The launcher drives it
-     * over ISystemUiProxy, so the two calls that bracket the gesture are the
-     * earliest and the last word on it: progress while the finger is down, and
-     * completion once it is gone and the opening animation takes over.
-     *
-     * <p>Recents scales the screen behind it, which a window of its own cannot
-     * follow; the glyph is handed back to the bar for the duration and returns
-     * to the window once the bar is standing still again.
+     * over ISystemUiProxy and SystemUI's own proxy class answers on the binder
+     * thread; the method it ends in is the one signal that exists on this
+     * build, so it is used as a pulse: every report pushes the bar's return a
+     * little further out, and the last one lets it come back.
      */
     private static int hookOverviewGesture(XposedModule module, ClassLoader cl) {
         final Class<?> proxy = Refl.cls(
-                "com.android.systemui.recents.LauncherProxyService$1", cl);
+                "com.android.systemui.recents.LauncherProxyService", cl);
         if (proxy == null) {
-            log(module, "LauncherProxyService$1 missing");
+            log(module, "LauncherProxyService missing");
             return 0;
         }
-        int n = 0;
-        n += hook(module, Refl.method(proxy, "onAssistantProgress", float.class),
-                "hyperduo-overview-progress", new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        final Object result = chain.proceed();
-                        final Object progress = chain.getArg(0);
-                        if (progress instanceof Float) {
-                            TrioOverlay.onOverviewProgress((Float) progress);
-                        }
-                        return result;
-                    }
-                });
-        n += hook(module, Refl.method(proxy, "onAssistantGestureCompletion", float.class),
-                "hyperduo-overview-done", new XposedInterface.Hooker() {
-                    @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        final Object result = chain.proceed();
-                        TrioOverlay.onOverviewGestureDone();
-                        return result;
-                    }
-                });
-        return n;
+        final Method done = Refl.method(proxy, "notifyAssistantGestureCompletion",
+                float.class);
+        if (done == null) {
+            log(module, "notifyAssistantGestureCompletion missing");
+            return 0;
+        }
+        return hook(module, done, "hyperduo-overview", new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                final Object result = chain.proceed();
+                TrioOverlay.onOverviewPulse();
+                return result;
+            }
+        });
+    }
+
+    /**
+     * The panel behind the expansion callback, remembered so its height can be
+     * read later: a flag set by a callback needs a way to be cleared when the
+     * callback that would clear it never comes.
+     */
+    private static volatile Object sPanel;
+    private static Field sPanelHeight;
+
+    static void noteShadeInjector(Object injector) {
+        if (injector == null || sPanel != null) {
+            return;
+        }
+        try {
+            final Method get = Refl.method(injector.getClass(), "getPanelViewController");
+            final Object panel = (get == null) ? null : get.invoke(injector);
+            if (panel == null) {
+                return;
+            }
+            sPanelHeight = Refl.field(panel.getClass(), "mExpandedHeight");
+            if (sPanelHeight != null) {
+                sPanel = panel;
+            }
+        } catch (Throwable t) {
+            log(sModule, "shade panel unavailable: " + t);
+        }
+    }
+
+    /** True while the panel is open by any amount. */
+    static boolean shadeExpanded() {
+        final Object panel = sPanel;
+        final Field height = sPanelHeight;
+        if (panel == null || height == null) {
+            return false;
+        }
+        try {
+            final Object value = height.get(panel);
+            return value instanceof Float && (Float) value > 0.5f;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------- registrations
