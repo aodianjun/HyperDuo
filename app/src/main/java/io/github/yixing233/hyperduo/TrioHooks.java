@@ -767,7 +767,7 @@ final class TrioHooks {
                             if (overlay != null) {
                                 canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                                 overlay.sync();
-                            } else if (TrioOverlay.windowOwned() && isStatusBarHost(host)) {
+                            } else if (TrioOverlay.coveringBar() && isStatusBarHost(host)) {
                                 // Another view on the bar's own row owns the glyph
                                 // window (MIUI inflates more than one battery view
                                 // there). This one has to stay blank: painting the

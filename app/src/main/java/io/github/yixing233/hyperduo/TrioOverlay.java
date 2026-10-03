@@ -297,6 +297,24 @@ final class TrioOverlay {
         return sOwner != null;
     }
 
+    /**
+     * True while the window is open *and* showing the glyph.
+     *
+     * <p>The row steps aside for the window only in that case. A window that is
+     * open but hidden - the bar sliding out from under it, the panel coming down -
+     * must not blank the row: that is how the glyph disappeared from both the bar
+     * and the panel at once, with the window invisible and every host politely
+     * clearing its canvas.
+     */
+    static boolean coveringBar() {
+        final View owner = sOwner;
+        if (owner == null) {
+            return false;
+        }
+        final TrioOverlay overlay = LIVE.get(owner);
+        return overlay != null && overlay.attached && overlay.shown;
+    }
+
     /** Drops the window for a host that is going away. Safe to call repeatedly. */
     static void release(View host) {
         final TrioOverlay overlay = LIVE.remove(host);
