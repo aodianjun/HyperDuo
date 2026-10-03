@@ -1829,6 +1829,20 @@ final class TrioHooks {
 
     /** Repaints every trio host. Signal updates arrive off the UI thread. */
     static void invalidateHosts() {
+        // The bar itself is asked to lay out again as well: the host that owns
+        // the glyph window can have left the tree since the last pass, and a
+        // host that never draws again would never take the window over - the
+        // row would stay blank with the window gone.
+        final View bar = sStatusBarView;
+        if (bar != null) {
+            bar.post(new Runnable() {
+                @Override
+                public void run() {
+                    bar.requestLayout();
+                    bar.invalidate();
+                }
+            });
+        }
         final List<TrioState> copy;
         synchronized (HOSTS) {
             if (HOSTS.isEmpty()) {
