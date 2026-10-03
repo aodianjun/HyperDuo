@@ -64,6 +64,35 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** True while the shade is on the move or open. */
+    private static volatile boolean sShadeBusy;
+
+    /**
+     * Called from the panel's own expansion step, on every frame of a drag and
+     * of the fling after it. Anything above zero means the shade is moving, so
+     * the window leaves on the first frame instead of after the animation.
+     */
+    static void onShadeHeight(float height) {
+        final boolean busy = height > 0.5f;
+        if (busy == sShadeBusy) {
+            return;
+        }
+        sShadeBusy = busy;
+        if (busy) {
+            for (TrioOverlay overlay : LIVE.values()) {
+                overlay.hideNow();
+            }
+        } else {
+            TrioHooks.invalidateHosts();
+        }
+    }
+
+    /** Hides the window now, without waiting for the host to draw again. */
+    void hideNow() {
+        shown = false;
+        glyph.setVisibility(View.INVISIBLE);
+    }
+
     private static final WeakHashMap<View, TrioOverlay> LIVE =
             new WeakHashMap<View, TrioOverlay>();
 
@@ -370,7 +399,7 @@ final class TrioOverlay {
         // on screen by definition, and a full-screen app's hidden bar stops painting
         // long before anything else notices.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && (drewRecently || insetsAgree);
+                && (drewRecently || insetsAgree) && !sShadeBusy;
         if (visible != shown) {
             shown = visible;
             glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);

@@ -289,6 +289,7 @@ final class TrioHooks {
         hooked += group(module, cl, 5);
         hooked += group(module, cl, 6);
         hooked += group(module, cl, 7);
+        hooked += group(module, cl, 8);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -633,6 +634,7 @@ final class TrioHooks {
                 case 4: return hookStatusBarView(module, cl);
                 case 5: return hookSignalIcons(module, cl);
                 case 6: return hookIconContainerLayout(module, cl);
+                case 8: return hookShadeExpansion(module, cl);
                 default: return hookMobileType(module, cl);
             }
         } catch (Throwable t) {
@@ -1065,6 +1067,37 @@ final class TrioHooks {
                                 && TrioState.setMobileType((String) raw)
                                 && !before.equals(TrioState.sMobileType)) {
                             invalidateHosts();
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /**
+     * Learns when the shade is being pulled down, so the glyph window can leave
+     * the screen on the first frame of the drag instead of after the animation.
+     *
+     * <p>{@code setExpandedHeightInternal} is the panel's own expansion step:
+     * every drag frame and every fling frame goes through it, including the
+     * paths that never touch {@code NotificationPanelViewController}. The height
+     * is zero while the panel is closed, so a value above zero is the earliest
+     * honest signal that the bar is no longer standing still.
+     */
+    private static int hookShadeExpansion(XposedModule module, ClassLoader cl) {
+        final Class<?> injector = Refl.cls(
+                "com.android.systemui.shade.NotificationPanelViewControllerInjector", cl);
+        if (injector == null) {
+            log(module, "NotificationPanelViewControllerInjector missing");
+            return 0;
+        }
+        return hook(module, Refl.method(injector, "setExpandedHeightInternal", float.class),
+                "hyperduo-shade", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object height = chain.getArg(0);
+                        if (height instanceof Float) {
+                            TrioOverlay.onShadeHeight((Float) height);
                         }
                         return result;
                     }
@@ -1691,7 +1724,7 @@ final class TrioHooks {
     }
 
     /** Repaints every trio host. Signal updates arrive off the UI thread. */
-    private static void invalidateHosts() {
+    static void invalidateHosts() {
         final List<TrioState> copy;
         synchronized (HOSTS) {
             if (HOSTS.isEmpty()) {
