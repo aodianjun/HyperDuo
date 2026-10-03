@@ -1,6 +1,7 @@
 package io.github.yixing233.hyperduo;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.os.SystemClock;
 import android.telephony.SignalStrength;
@@ -400,9 +401,28 @@ final class TrioState {
     int foreground() {
         int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
         if (c == 0) {
-            c = DEFAULT_FOREGROUND;
+            // MIUI's own fields come first - they describe the bar, which is not
+            // the same thing as the system theme - but they are not always there
+            // (a host inflated a moment ago, a bar whose tint never arrived). The
+            // system's night mode is the fallback so the glyph stays legible:
+            // white on a dark bar, the default foreground on a light one.
+            c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
         }
         return c;
+    }
+
+    /** The system's night mode, as the configuration currently reports it. */
+    private boolean nightMode() {
+        final Context context = sContext;
+        if (context == null) {
+            return false;
+        }
+        try {
+            return (context.getResources().getConfiguration().uiMode
+                    & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     // ------------------------------------------------------------ signal levels

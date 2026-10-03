@@ -767,6 +767,15 @@ final class TrioHooks {
                             if (overlay != null) {
                                 canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                                 overlay.sync();
+                            } else if (isStatusBarHost(host)) {
+                                // Another view on the bar's own row owns the glyph
+                                // window (MIUI inflates more than one battery view
+                                // there). This one has to stay blank: painting the
+                                // glyph here as well is what put two of them on
+                                // screen, a few pixels apart, whenever the bar was
+                                // laid out again - a dark-mode switch, an app with
+                                // its own bar colour, a configuration change.
+                                canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                             } else {
                                 TrioRenderer.draw(canvas, host, state);
                             }

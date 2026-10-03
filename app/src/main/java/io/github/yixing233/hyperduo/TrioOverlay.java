@@ -46,6 +46,9 @@ final class TrioOverlay {
     /** Window title, only ever visible in {@code dumpsys window}. */
     private static final String TITLE = "HyperDuo glyph";
 
+    /** How often the window re-checks whether the bar is still there, in ms. */
+    private static final long WATCH_INTERVAL_MS = 200L;
+
     /** {@code TYPE_APPLICATION_OVERLAY}: the fallback when the hidden type is absent. */
     private static final int TYPE_FALLBACK = 2038;
 
@@ -76,6 +79,27 @@ final class TrioOverlay {
     private boolean attached;
     /** Last applied visibility, so a steady frame does not touch the window. */
     private boolean shown = true;
+
+    /**
+     * Keeps the window honest between draws of the host.
+     *
+     * <p>sync() only ran when the host drew, and a bar that has just been hidden -
+     * a full-screen app, an immersive game, a collapsed shade - stops drawing
+     * first: the window would keep the glyph on screen over whatever is
+     * underneath until something else happened to repaint the bar. This asks the
+     * host directly, a few times a second, and hides the window the moment the
+     * bar is gone.
+     */
+    private final Runnable mWatch = new Runnable() {
+        @Override
+        public void run() {
+            if (!attached) {
+                return;
+            }
+            sync();
+            glyph.postDelayed(this, WATCH_INTERVAL_MS);
+        }
+    };
 
     /**
      * The last reason the window was not used. The decision runs on every frame
@@ -258,6 +282,7 @@ final class TrioOverlay {
         try {
             windowManager.addView(glyph, params);
             attached = true;
+            glyph.postDelayed(mWatch, WATCH_INTERVAL_MS);
             TrioHooks.log(TrioHooks.LOG_INFO, "overlay: added type=" + params.type
                     + " size=" + params.width + "x" + params.height);
             return true;
@@ -272,6 +297,7 @@ final class TrioOverlay {
             return;
         }
         attached = false;
+        glyph.removeCallbacks(mWatch);
         try {
             windowManager.removeViewImmediate(glyph);
             TrioHooks.log(TrioHooks.LOG_INFO, "overlay: removed");
