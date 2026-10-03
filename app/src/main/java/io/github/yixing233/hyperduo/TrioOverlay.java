@@ -2,6 +2,7 @@ package io.github.yixing233.hyperduo;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.util.DisplayMetrics;
 import android.graphics.PixelFormat;
 import android.view.Gravity;
 import android.view.View;
@@ -177,6 +178,9 @@ final class TrioOverlay {
         }
         if (!overlay.attach()) {
             LIVE.remove(host);
+            if (sOwner == host) {
+                sOwner = null;
+            }
             return null;
         }
         return overlay;
@@ -211,6 +215,11 @@ final class TrioOverlay {
         return sb.toString();
     }
 
+    /** True while some host owns the glyph window. */
+    static boolean windowOwned() {
+        return sOwner != null;
+    }
+
     /** Drops the window for a host that is going away. Safe to call repeatedly. */
     static void release(View host) {
         final TrioOverlay overlay = LIVE.remove(host);
@@ -240,7 +249,18 @@ final class TrioOverlay {
         final boolean barVisible = bar == null
                 || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
                     && bar.getAlpha() > 0f);
-        final boolean visible = hostVisible && barVisible;
+        // A bar that hides by sliding off the screen leaves every view reporting
+        // itself as shown - the window is still visible, the views are still
+        // attached - so the host's rectangle on screen is part of the test. That
+        // is the case a full-screen app produces: the glyph stayed behind because
+        // nothing in the view tree had changed.
+        host.getLocationOnScreen(location);
+        final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
+        final boolean onScreen = location[0] + host.getWidth() > 0
+                && location[0] < metrics.widthPixels
+                && location[1] + host.getHeight() > 0
+                && location[1] < metrics.heightPixels;
+        final boolean visible = hostVisible && barVisible && onScreen;
         if (visible != shown) {
             shown = visible;
             glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
@@ -264,7 +284,7 @@ final class TrioOverlay {
         // Centred on the host, wherever the host is: this is what makes the
         // placement work in landscape, where the bar is not at the top of the
         // screen and "flush with the top edge" is simply wrong.
-        host.getLocationOnScreen(location);
+        // location was read above, together with the visibility test
         final int x = location[0] + hostWidth / 2 - width / 2;
         final int y = location[1] + hostHeight / 2 - height / 2;
         // Alpha rides with the bar's own: the pull-down fades the status bar

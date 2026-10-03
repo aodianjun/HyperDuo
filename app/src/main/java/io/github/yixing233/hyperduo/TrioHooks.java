@@ -767,7 +767,7 @@ final class TrioHooks {
                             if (overlay != null) {
                                 canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                                 overlay.sync();
-                            } else if (isStatusBarHost(host)) {
+                            } else if (TrioOverlay.windowOwned() && isStatusBarHost(host)) {
                                 // Another view on the bar's own row owns the glyph
                                 // window (MIUI inflates more than one battery view
                                 // there). This one has to stay blank: painting the
@@ -775,6 +775,11 @@ final class TrioHooks {
                                 // screen, a few pixels apart, whenever the bar was
                                 // laid out again - a dark-mode switch, an app with
                                 // its own bar colour, a configuration change.
+                                //
+                                // Gated on a window actually existing: with the
+                                // switch off there is none, and blanking the row
+                                // here is what made the glyph disappear entirely
+                                // when the window route was turned off.
                                 canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                             } else {
                                 TrioRenderer.draw(canvas, host, state);
