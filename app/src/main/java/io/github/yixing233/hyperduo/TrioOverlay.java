@@ -296,10 +296,19 @@ final class TrioOverlay {
         }
         final View owner = sOwner;
         if (owner != null && owner != host) {
-            // One window per bar: MIUI inflates more than one battery view into the
-            // same row, and two windows in the same spot draw the glyph twice.
-            release(host);
-            return null;
+            if (owner.isAttachedToWindow() && owner.isShown()) {
+                // One window per bar: MIUI inflates more than one battery view
+                // into the same row, and two windows in the same spot draw the
+                // glyph twice.
+                release(host);
+                return null;
+            }
+            // The owner has left the tree - MIUI rebuilds the bar's row on its
+            // own schedule - and the window went with it. Holding the slot for a
+            // view that is gone is what left the glyph missing for good: no host
+            // could ever take the window over, so every one of them fell back to
+            // drawing into a row that had been told to stay blank.
+            release(owner);
         }
         sOwner = host;
         TrioOverlay overlay = LIVE.get(host);
