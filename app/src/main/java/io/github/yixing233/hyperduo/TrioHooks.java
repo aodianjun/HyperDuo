@@ -767,8 +767,20 @@ final class TrioHooks {
                             // the two cannot show at once.
                             final TrioOverlay overlay = TrioOverlay.active(host, state);
                             if (overlay != null) {
-                                canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                                 overlay.sync();
+                                if (overlay.covering()) {
+                                    // The window is painting the glyph, so this
+                                    // row has to stay blank: painting here as
+                                    // well is what put two glyphs on screen, a
+                                    // few pixels apart.
+                                    canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+                                } else {
+                                    // The window is not painting - the shade is
+                                    // moving, the bar is off screen - so the row
+                                    // draws the glyph itself and the trio stays
+                                    // with the bar instead of blinking out.
+                                    TrioRenderer.draw(canvas, host, state);
+                                }
                             } else if (TrioOverlay.coveringBar() && isStatusBarHost(host)) {
                                 // Another view on the bar's own row owns the glyph
                                 // window (MIUI inflates more than one battery view

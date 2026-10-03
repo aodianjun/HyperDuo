@@ -84,9 +84,10 @@ final class TrioOverlay {
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
             }
-        } else {
-            TrioHooks.invalidateHosts();
         }
+        // Either way the row has to draw again: with the window gone it paints
+        // the glyph itself, and with the window back it steps aside for it.
+        TrioHooks.invalidateHosts();
     }
 
     /** Hides the window now, without waiting for the host to draw again. */
@@ -343,7 +344,12 @@ final class TrioOverlay {
             return false;
         }
         final TrioOverlay overlay = LIVE.get(owner);
-        return overlay != null && overlay.attached && overlay.shown;
+        return overlay != null && overlay.covering();
+    }
+
+    /** True while this window is open and painting the glyph. */
+    boolean covering() {
+        return attached && shown;
     }
 
     /** Drops the window for a host that is going away. Safe to call repeatedly. */
