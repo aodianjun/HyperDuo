@@ -384,11 +384,11 @@ final class TrioOverlay {
         // location was read above, together with the visibility test
         final int x = location[0] + hostWidth / 2 - width / 2;
         final int y = location[1] + hostHeight / 2 - height / 2;
-        // Alpha rides with the bar's own: the pull-down fades the status bar
-        // rather than hiding it, and a window that stays opaque through that
-        // reads as a glyph glued to the shade.
-        final float alpha = (bar == null) ? host.getAlpha()
-                : Math.min(host.getAlpha(), bar.getAlpha());
+        // Only the host's own alpha. The bar view's alpha is about the bar's own
+        // window, and MIUI fades that out the moment the shade opens - following it
+        // there made the window invisible exactly when the shade's copy of the
+        // glyph was the one on screen.
+        final float alpha = host.getAlpha();
         if (params.width != width || params.height != height
                 || params.x != x || params.y != y || params.alpha != alpha) {
             params.width = width;
