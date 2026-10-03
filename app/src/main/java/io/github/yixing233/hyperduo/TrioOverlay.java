@@ -129,16 +129,60 @@ final class TrioOverlay {
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
             }
+        } else {
+            for (TrioOverlay overlay : LIVE.values()) {
+                overlay.showAgain();
+            }
         }
         // Either way the row has to draw again: with the window gone it paints
         // the glyph itself, and with the window back it steps aside for it.
         TrioHooks.invalidateHosts();
     }
 
+    /** True while this window is down because the bar is not standing still. */
+    private boolean hiddenByBusy;
+
     /** Hides the window now, without waiting for the host to draw again. */
     void hideNow() {
         shown = false;
+        hiddenByBusy = true;
         glyph.setVisibility(View.INVISIBLE);
+    }
+
+    /**
+     * Puts the window back without waiting for the host to draw again.
+     *
+     * <p>A bar that is standing still does not draw, so waiting for its next
+     * draw pass to bring the window back would leave it hidden for as long as
+     * nothing changed on screen - which is exactly the state the glyph is for.
+     * The window is where the last sync left it and the host has not moved, so
+     * it can be shown again here; the same visibility rules are re-checked so a
+     * bar that is off screen or covered keeps it hidden.
+     */
+    void showAgain() {
+        if (!hiddenByBusy) {
+            return;
+        }
+        hiddenByBusy = false;
+        final View bar = TrioHooks.statusBarView();
+        final boolean hostVisible = host.isShown()
+                && host.getWindowVisibility() == View.VISIBLE
+                && host.getAlpha() > 0f;
+        final boolean barVisible = bar == null
+                || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
+                    && bar.getAlpha() > 0f);
+        host.getLocationOnScreen(location);
+        final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
+        final boolean onScreen = location[0] + host.getWidth() > 0
+                && location[0] < metrics.widthPixels
+                && location[1] + host.getHeight() > 0
+                && location[1] < metrics.heightPixels;
+        if (!hostVisible || !barVisible || !onScreen
+                || windowAlpha(host) <= 0f || windowAlpha(bar) <= 0f) {
+            return;
+        }
+        shown = true;
+        glyph.setVisibility(View.VISIBLE);
     }
 
     private static final WeakHashMap<View, TrioOverlay> LIVE =
