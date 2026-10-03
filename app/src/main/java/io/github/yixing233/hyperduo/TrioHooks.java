@@ -290,6 +290,7 @@ final class TrioHooks {
         hooked += group(module, cl, 6);
         hooked += group(module, cl, 7);
         hooked += group(module, cl, 8);
+        hooked += group(module, cl, 9);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -635,6 +636,7 @@ final class TrioHooks {
                 case 5: return hookSignalIcons(module, cl);
                 case 6: return hookIconContainerLayout(module, cl);
                 case 8: return hookShadeExpansion(module, cl);
+                case 9: return hookOverviewGesture(module, cl);
                 default: return hookMobileType(module, cl);
             }
         } catch (Throwable t) {
@@ -1130,6 +1132,48 @@ final class TrioHooks {
         if (n == 0) {
             log(module, "shade expansion hooks missing");
         }
+        return n;
+    }
+
+    /**
+     * Hears the launcher's overview (recents) gesture. The launcher drives it
+     * over ISystemUiProxy, so the two calls that bracket the gesture are the
+     * earliest and the last word on it: progress while the finger is down, and
+     * completion once it is gone and the opening animation takes over.
+     *
+     * <p>Recents scales the screen behind it, which a window of its own cannot
+     * follow; the glyph is handed back to the bar for the duration and returns
+     * to the window once the bar is standing still again.
+     */
+    private static int hookOverviewGesture(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls(
+                "com.android.systemui.recents.LauncherProxyService$1", cl);
+        if (proxy == null) {
+            log(module, "LauncherProxyService$1 missing");
+            return 0;
+        }
+        int n = 0;
+        n += hook(module, Refl.method(proxy, "onAssistantProgress", float.class),
+                "hyperduo-overview-progress", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object progress = chain.getArg(0);
+                        if (progress instanceof Float) {
+                            TrioOverlay.onOverviewProgress((Float) progress);
+                        }
+                        return result;
+                    }
+                });
+        n += hook(module, Refl.method(proxy, "onAssistantGestureCompletion", float.class),
+                "hyperduo-overview-done", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        TrioOverlay.onOverviewGestureDone();
+                        return result;
+                    }
+                });
         return n;
     }
 

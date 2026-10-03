@@ -64,8 +64,20 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
-    /** True while the shade is on the move or open. */
+    /** True while the bar is not standing still. */
     private static volatile boolean sShadeBusy;
+
+    /** Both overview signals arrive on the UI thread, so this handler is too. */
+    private static final android.os.Handler BUSY_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /** Lets the bar draw again once the launcher stops reporting progress. */
+    private static final Runnable CLEAR_OVERVIEW = new Runnable() {
+        @Override
+        public void run() {
+            setBusy(false, "overview settled");
+        }
+    };
 
     /**
      * Called from the panel's own expansion step, on every frame of a drag and
@@ -73,13 +85,40 @@ final class TrioOverlay {
      * the window leaves on the first frame instead of after the animation.
      */
     static void onShadeHeight(float height) {
-        final boolean busy = height > 0.5f;
+        setBusy(height > 0.5f, "shade height=" + height);
+    }
+
+    /**
+     * Called while the launcher reports an overview (recents) gesture or the
+     * animation that follows it. Recents scales what it covers, and a window of
+     * its own cannot follow that, so for the duration the glyph goes back to
+     * being painted by the bar itself.
+     */
+    static void onOverviewProgress(float progress) {
+        if (progress > 0.01f) {
+            setBusy(true, "overview progress=" + progress);
+        } else {
+            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
+            BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 250);
+        }
+    }
+
+    /** The gesture is over; hold a little longer, then let the bar draw again. */
+    static void onOverviewGestureDone() {
+        BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
+        BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 400);
+    }
+
+    private static void setBusy(boolean busy, String why) {
+        if (busy) {
+            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
+        }
         if (busy == sShadeBusy) {
             return;
         }
         sShadeBusy = busy;
-        TrioHooks.log(TrioHooks.LOG_INFO, "shade: height=" + height
-                + " busy=" + busy + " windows=" + LIVE.size());
+        TrioHooks.log(TrioHooks.LOG_INFO, "busy=" + busy + " (" + why
+                + ") windows=" + LIVE.size());
         if (busy) {
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
