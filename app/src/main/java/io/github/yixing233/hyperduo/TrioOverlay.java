@@ -46,8 +46,8 @@ final class TrioOverlay {
     /** Window title, only ever visible in {@code dumpsys window}. */
     private static final String TITLE = "HyperDuo glyph";
 
-    /** How often the window re-checks whether the bar is still there, in ms. */
-    private static final long WATCH_INTERVAL_MS = 200L;
+    /** How often the window re-checks the bar it belongs to, in ms. */
+    private static final long WATCH_INTERVAL_MS = 100L;
 
     /** {@code TYPE_APPLICATION_OVERLAY}: the fallback when the hidden type is absent. */
     private static final int TYPE_FALLBACK = 2038;
@@ -228,9 +228,19 @@ final class TrioOverlay {
      * schedule layout on the host.
      */
     void sync() {
-        final boolean visible = host.isShown()
+        final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
                 && host.getAlpha() > 0f;
+        // The bar is what is on screen, not this view: MIUI fades the bar's
+        // contents during a shade pull, hides them outright when the shade is
+        // open or a full-screen app takes the screen, and the window has to go
+        // with it rather than outlive it. Tying visibility and alpha to the bar
+        // (and not just to the host) is what keeps the two in step.
+        final View bar = TrioHooks.statusBarView();
+        final boolean barVisible = bar == null
+                || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
+                    && bar.getAlpha() > 0f);
+        final boolean visible = hostVisible && barVisible;
         if (visible != shown) {
             shown = visible;
             glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
@@ -257,12 +267,18 @@ final class TrioOverlay {
         host.getLocationOnScreen(location);
         final int x = location[0] + hostWidth / 2 - width / 2;
         final int y = location[1] + hostHeight / 2 - height / 2;
+        // Alpha rides with the bar's own: the pull-down fades the status bar
+        // rather than hiding it, and a window that stays opaque through that
+        // reads as a glyph glued to the shade.
+        final float alpha = (bar == null) ? host.getAlpha()
+                : Math.min(host.getAlpha(), bar.getAlpha());
         if (params.width != width || params.height != height
-                || params.x != x || params.y != y) {
+                || params.x != x || params.y != y || params.alpha != alpha) {
             params.width = width;
             params.height = height;
             params.x = x;
             params.y = y;
+            params.alpha = alpha;
             try {
                 windowManager.updateViewLayout(glyph, params);
             } catch (Throwable t) {
