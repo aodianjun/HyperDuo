@@ -749,6 +749,12 @@ final class TrioHooks {
                                 recolourOutRing(state, ink);
                             }
                             final Canvas canvas = (Canvas) canvasArg;
+                            // Drawing is the one signal that cannot lie about
+                            // whether this host is on screen: a hidden window is
+                            // never drawn, and a bar that comes back - the shade
+                            // over a full-screen app, for instance - starts
+                            // drawing again. TrioOverlay uses the timestamp.
+                            TrioOverlay.noteDrawn(host);
                             // The bar window is only status_bar_height tall and
                             // clips everything past it. Growing the row inside it
                             // was tried and abandoned: MIUI's own measure chain

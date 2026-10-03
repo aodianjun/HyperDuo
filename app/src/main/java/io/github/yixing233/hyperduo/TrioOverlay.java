@@ -2,6 +2,7 @@ package io.github.yixing233.hyperduo;
 
 import android.content.Context;
 import android.graphics.Canvas;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.WindowInsets;
 import android.graphics.PixelFormat;
@@ -52,6 +53,13 @@ final class TrioOverlay {
     /** How often the window re-checks the bar it belongs to, in ms. */
     private static final long WATCH_INTERVAL_MS = 100L;
 
+    /**
+     * How long a host counts as "on screen" after its last draw, in ms. Long
+     * enough to cover a bar that simply has nothing new to draw, short enough that
+     * a bar hidden behind a full-screen app stops counting almost at once.
+     */
+    private static final long DRAW_GRACE_MS = 2000L;
+
     /** {@code TYPE_APPLICATION_OVERLAY}: the fallback when the hidden type is absent. */
     private static final int TYPE_FALLBACK = 2038;
 
@@ -70,6 +78,10 @@ final class TrioOverlay {
      * to ask keeps the window; the others stay on the in-view path.
      */
     private static volatile View sOwner;
+
+    /** When a host last drew, and which host it was. */
+    private static volatile long sLastDraw;
+    private static volatile View sLastDrawHost;
 
     private final View host;
     private final TrioState state;
@@ -261,15 +273,28 @@ final class TrioOverlay {
     private static boolean onScreenNow(View view) {
         if (view == null || !view.isShown()
                 || view.getWindowVisibility() != View.VISIBLE
-                || view.getAlpha() <= 0f || windowAlpha(view) <= 0f
-                || !insetsShowBar(view)) {
+                || view.getAlpha() <= 0f || windowAlpha(view) <= 0f) {
             return false;
+        }
+        // A host that drew a moment ago is on screen, whatever the insets think:
+        // the shade's copy of the bar keeps drawing while the panel is open over a
+        // full-screen app, and the insets still say the bar is hidden then.
+        if (view == sLastDrawHost
+                && SystemClock.uptimeMillis() - sLastDraw < DRAW_GRACE_MS) {
+            return true;
         }
         final int[] loc = new int[2];
         view.getLocationOnScreen(loc);
         final DisplayMetrics metrics = view.getResources().getDisplayMetrics();
-        return loc[0] + view.getWidth() > 0 && loc[0] < metrics.widthPixels
+        return insetsShowBar(view)
+                && loc[0] + view.getWidth() > 0 && loc[0] < metrics.widthPixels
                 && loc[1] + view.getHeight() > 0 && loc[1] < metrics.heightPixels;
+    }
+
+    /** Records that a host drew a frame; called from the hooked draw pass. */
+    static void noteDrawn(View host) {
+        sLastDraw = SystemClock.uptimeMillis();
+        sLastDrawHost = host;
     }
 
     /** True while some host owns the glyph window. */
@@ -325,9 +350,14 @@ final class TrioOverlay {
         // - a full-screen app asks the system to hide the status bar, which shows
         //   up in the window insets before it shows up anywhere in the view tree.
         final boolean windowsOpaque = windowAlpha(host) > 0f && windowAlpha(bar) > 0f;
+        final boolean drewRecently = host == sLastDrawHost
+                && SystemClock.uptimeMillis() - sLastDraw < DRAW_GRACE_MS;
         final boolean insetsAgree = insetsShowBar(host);
-        final boolean visible = hostVisible && barVisible && windowsOpaque && insetsAgree
-                && onScreen;
+        // Drawing wins over what the insets claim: a bar that is painting itself is
+        // on screen by definition, and a full-screen app's hidden bar stops painting
+        // long before anything else notices.
+        final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
+                && (drewRecently || insetsAgree);
         if (visible != shown) {
             shown = visible;
             glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
