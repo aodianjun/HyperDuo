@@ -399,18 +399,17 @@ final class TrioState {
 
     /** The plain icon colour: what MIUI would paint the battery icon in. */
     int foreground() {
-        // MIUI's own fields decide first: the bar knows what it is drawing on, and
-        // the two colours it keeps are the same pair its own icons use. They are
-        // not always populated, though - a host inflated a moment ago, a bar whose
-        // tint never arrived - and the fallback used to be a light colour, which is
-        // invisible on a light bar. Night mode decides that case instead: white on
-        // a dark bar, black on a light one. Role colours come from the user's own
-        // on-dark / on-light pairs elsewhere and are not touched here.
-        int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
-        if (c == 0) {
-            c = nightMode() ? 0xFFFFFFFF : 0xFF000000;
-        }
-        return c;
+        // The ordinary foreground follows the system's night mode: white on a dark
+        // bar, black on a light one. MIUI's own tint fields used to decide this,
+        // but on the reference device they report a light colour on a light bar -
+        // which is how the glyph ended up white on white, and why this reads the
+        // system theme instead.
+        //
+        // Only this one colour flips. The role colours - charging, low, critical -
+        // keep coming from the user's own on-dark / on-light pairs
+        // ({@code Prefs.KEY_COLOR_*_ON_DARK} / {@code _ON_LIGHT}), which is the
+        // mechanism that was already here for exactly this purpose.
+        return nightMode() ? 0xFFFFFFFF : 0xFF000000;
     }
 
     /** The system's night mode, as the configuration currently reports it. */
