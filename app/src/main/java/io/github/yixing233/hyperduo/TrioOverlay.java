@@ -72,33 +72,27 @@ final class TrioOverlay {
             new android.os.Handler(android.os.Looper.getMainLooper());
 
     /**
-     * The panel's own height is the truth about whether the shade is open; the
-     * expansion callback is only the wake-up call. Not every way a panel closes
-     * goes through it - SystemUI can come back with the shade already open and
-     * no callback at all - so while the flag is set the panel is asked again,
-     * and the flag is dropped the moment the panel says it is shut.
+     * Lets the bar draw again once nothing has moved for a moment. Both signals
+     * are pulses rather than states: the panel reports its height on the frames
+     * it changes and the launcher reports its gesture while it runs, so a hold
+     * that is refreshed by every report and expires on its own is the one shape
+     * that cannot get stuck when the closing report never comes.
      */
-    private static final Runnable RECHECK = new Runnable() {
+    private static final Runnable CLEAR_BUSY = new Runnable() {
         @Override
         public void run() {
-            if (!sShadeBusy) {
-                return;
-            }
-            if (!TrioHooks.shadeExpanded()) {
-                setBusy(false, "shade closed");
-                return;
-            }
-            BUSY_HANDLER.postDelayed(this, 400);
+            setBusy(false, "settled");
         }
     };
 
-    /** Lets the bar draw again once the launcher stops reporting. */
-    private static final Runnable CLEAR_OVERVIEW = new Runnable() {
-        @Override
-        public void run() {
-            setBusy(false, "overview settled");
-        }
-    };
+    /** How long the bar stays stood down after the last report. */
+    private static final long HOLD_MS = 600L;
+
+    private static void pulse(String why) {
+        setBusy(true, why);
+        BUSY_HANDLER.removeCallbacks(CLEAR_BUSY);
+        BUSY_HANDLER.postDelayed(CLEAR_BUSY, HOLD_MS);
+    }
 
     /**
      * Called from the panel's own expansion step, on every frame of a drag and
@@ -106,7 +100,11 @@ final class TrioOverlay {
      * the window leaves on the first frame instead of after the animation.
      */
     static void onShadeHeight(float height) {
-        setBusy(height > 0.5f, "shade height=" + height);
+        if (height > 0.5f) {
+            pulse("shade height=" + height);
+        } else {
+            setBusy(false, "shade closed");
+        }
     }
 
     /**
@@ -116,9 +114,7 @@ final class TrioOverlay {
      * being painted by the bar itself.
      */
     static void onOverviewPulse() {
-        setBusy(true, "overview");
-        BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
-        BUSY_HANDLER.postDelayed(CLEAR_OVERVIEW, 600);
+        pulse("overview");
     }
 
     private static void setBusy(boolean busy, String why) {
@@ -128,13 +124,11 @@ final class TrioOverlay {
         sShadeBusy = busy;
         TrioHooks.log(TrioHooks.LOG_INFO, "busy=" + busy + " (" + why
                 + ") windows=" + LIVE.size());
-        BUSY_HANDLER.removeCallbacks(RECHECK);
         if (busy) {
-            BUSY_HANDLER.removeCallbacks(CLEAR_OVERVIEW);
+            BUSY_HANDLER.removeCallbacks(CLEAR_BUSY);
             for (TrioOverlay overlay : LIVE.values()) {
                 overlay.hideNow();
             }
-            BUSY_HANDLER.postDelayed(RECHECK, 400);
         }
         // Either way the row has to draw again: with the window gone it paints
         // the glyph itself, and with the window back it steps aside for it.
