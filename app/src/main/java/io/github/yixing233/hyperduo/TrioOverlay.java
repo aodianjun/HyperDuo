@@ -3,6 +3,7 @@ package io.github.yixing233.hyperduo;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.util.DisplayMetrics;
+import android.view.WindowInsets;
 import android.graphics.PixelFormat;
 import android.view.Gravity;
 import android.view.View;
@@ -203,6 +204,35 @@ final class TrioOverlay {
     }
 
     /** {@code Host<Parent<...}}, truncated: the log line is a diagnosis, not a dump. */
+    /** The alpha of the window a view lives in - not the view's own. */
+    private static float windowAlpha(View view) {
+        if (view == null) {
+            return 1f;
+        }
+        final View root = view.getRootView();
+        final ViewGroup.LayoutParams lp = (root == null) ? null : root.getLayoutParams();
+        return (lp instanceof WindowManager.LayoutParams)
+                ? ((WindowManager.LayoutParams) lp).alpha : 1f;
+    }
+
+    /**
+     * Whether the system still tells this window that the status bar is visible.
+     *
+     * <p>A full-screen app hides the bar by asking the system to, and the first
+     * place that lands is the insets - before any view in the bar has changed.
+     */
+    private static boolean insetsShowBar(View view) {
+        if (view == null) {
+            return true;
+        }
+        try {
+            final WindowInsets insets = view.getRootWindowInsets();
+            return insets == null || insets.isVisible(WindowInsets.Type.statusBars());
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
     private static String chainOf(View host) {
         if (host == null) {
             return "-";
@@ -260,7 +290,17 @@ final class TrioOverlay {
                 && location[0] < metrics.widthPixels
                 && location[1] + host.getHeight() > 0
                 && location[1] < metrics.heightPixels;
-        final boolean visible = hostVisible && barVisible && onScreen;
+        // Two more ways a bar goes away that no view reports:
+        //
+        // - MIUI fades the bar's *window*, not the view, so getAlpha() stays 1
+        //   while the window is already invisible. The window's own layout params
+        //   are what carries that alpha.
+        // - a full-screen app asks the system to hide the status bar, which shows
+        //   up in the window insets before it shows up anywhere in the view tree.
+        final boolean windowsOpaque = windowAlpha(host) > 0f && windowAlpha(bar) > 0f;
+        final boolean insetsAgree = insetsShowBar(host);
+        final boolean visible = hostVisible && barVisible && windowsOpaque && insetsAgree
+                && onScreen;
         if (visible != shown) {
             shown = visible;
             glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
