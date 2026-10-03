@@ -142,11 +142,20 @@ final class TrioOverlay {
     /** True while this window is down because the bar is not standing still. */
     private boolean hiddenByBusy;
 
-    /** Hides the window now, without waiting for the host to draw again. */
+    /**
+     * Takes the glyph off the screen now, without waiting for the host to draw
+     * again.
+     *
+     * <p>The window itself stays up and stays visible to the window manager: it
+     * is the glyph inside it that is made transparent. Hiding the window's only
+     * view would make the window itself report as not visible, and putting it
+     * back would then have to wait for a draw pass that a bar standing still
+     * never performs - the state the glyph exists for.
+     */
     void hideNow() {
         shown = false;
         hiddenByBusy = true;
-        glyph.setVisibility(View.INVISIBLE);
+        glyph.setAlpha(0f);
     }
 
     /**
@@ -180,8 +189,7 @@ final class TrioOverlay {
             return;
         }
         shown = true;
-        glyph.setVisibility(View.VISIBLE);
-        glyph.invalidate();
+        glyph.setAlpha(1f);
     }
 
     private static final WeakHashMap<View, TrioOverlay> LIVE =
@@ -507,7 +515,8 @@ final class TrioOverlay {
                 && (drewRecently || insetsAgree) && !sShadeBusy;
         if (visible != shown) {
             shown = visible;
-            glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+            // Alpha, not visibility: see hideNow().
+            glyph.setAlpha(visible ? 1f : 0f);
         }
         if (!visible) {
             return;
