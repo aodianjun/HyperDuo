@@ -164,25 +164,24 @@ final class TrioOverlay {
             return;
         }
         hiddenByBusy = false;
-        final View bar = TrioHooks.statusBarView();
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
                 && host.getAlpha() > 0f;
-        final boolean barVisible = bar == null
-                || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
-                    && bar.getAlpha() > 0f);
         host.getLocationOnScreen(location);
         final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
         final boolean onScreen = location[0] + host.getWidth() > 0
                 && location[0] < metrics.widthPixels
                 && location[1] + host.getHeight() > 0
                 && location[1] < metrics.heightPixels;
-        if (!hostVisible || !barVisible || !onScreen
-                || windowAlpha(host) <= 0f || windowAlpha(bar) <= 0f) {
+        TrioHooks.log(TrioHooks.LOG_INFO, "showAgain: host=" + hostVisible
+                + " onScreen=" + onScreen + " size=" + host.getWidth() + "x"
+                + host.getHeight() + " at " + location[0] + "," + location[1]);
+        if (!hostVisible || !onScreen) {
             return;
         }
         shown = true;
         glyph.setVisibility(View.VISIBLE);
+        glyph.invalidate();
     }
 
     private static final WeakHashMap<View, TrioOverlay> LIVE =
