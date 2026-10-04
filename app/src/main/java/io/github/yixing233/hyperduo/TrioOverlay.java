@@ -64,6 +64,10 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** Scratch rectangle for the visible-rect test; UI thread only. */
+    private static final android.graphics.Rect VISIBLE_RECT =
+            new android.graphics.Rect();
+
     /** Last sync trace logged, so the same one is not written twice. */
     private static volatile String sLastSyncNote;
 
@@ -539,12 +543,12 @@ final class TrioOverlay {
         final boolean windowsOpaque = windowAlpha(host) > 0f && windowAlpha(bar) > 0f;
         final boolean drewRecently = host == sLastDrawHost
                 && SystemClock.uptimeMillis() - sLastDraw < DRAW_GRACE_MS;
-        // Asked of the glyph's own window, not of the host: the host lives inside
-        // the status bar's window, whose insets always describe the bar as the
-        // bar sees itself. The glyph window is a window of its own sitting above
-        // the bar, so what the system tells it about the bar is the truth about
-        // what is on screen - a full-screen app answers no.
-        final boolean insetsAgree = insetsShowBar(glyph != null ? glyph : host);
+        final boolean insetsAgree = insetsShowBar(host);
+        // The one test that sees a full-screen app: a window that is completely
+        // covered reports no visible rectangle, and the status bar's window is
+        // exactly that while an app like the camera owns the screen. The insets
+        // cannot see it - they describe the bar as the bar sees itself.
+        final boolean unclipped = host.getGlobalVisibleRect(VISIBLE_RECT);
         // Drawing wins over what the insets claim: a bar that is painting itself is
         // on screen by definition, and a full-screen app's hidden bar stops painting
         // long before anything else notices.
@@ -554,7 +558,7 @@ final class TrioOverlay {
         // screen". Nothing is lost when the insets say no - the row paints the
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && insetsAgree && !sShadeBusy;
+                && insetsAgree && unclipped && !sShadeBusy;
         if (host == sOwner) {
             final String trace = "sync: hShown=" + host.isShown()
                     + " hWin=" + host.getWindowVisibility()
@@ -564,7 +568,7 @@ final class TrioOverlay {
                     + " bA=" + (bar == null ? -9f : effectiveAlpha(bar))
                     + " bWinA=" + windowAlpha(bar)
                     + " onScreen=" + onScreen
-                    + " insets=" + insetsAgree
+                    + " insets=" + insetsAgree + " unclipped=" + unclipped
                     + " busy=" + sShadeBusy
                     + " -> " + visible;
             if (!trace.equals(sLastSyncNote)) {
