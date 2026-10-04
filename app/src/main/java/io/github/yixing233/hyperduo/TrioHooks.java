@@ -1997,23 +1997,23 @@ final class TrioHooks {
      * SystemUI can answer the question: a covered window still reports itself
      * visible and opaque, the module is not allowed to read the task list, and
      * the window manager - which does know - will not say without root. The
-     * script watches app launches and asks it there.
+     * script watches app launches, asks it there, and leaves the answer in a
+     * system property, which needs no file permissions to read.
      */
-    private static final String COVER_FILE = "/data/local/tmp/hd_covered";
+    private static final String COVER_PROPERTY = "hyperduo.covered";
 
-    /** Reads the watcher's answer; false when there is no watcher. */
+    /** Reads the watcher's answer; the last known one when there is no watcher. */
     static boolean barCovered() {
         try {
-            final java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.FileReader(COVER_FILE));
-            final String line = reader.readLine();
-            reader.close();
-            final boolean covered = line != null && line.trim().equals("1");
-            sBarCovered = covered;
-            return covered;
-        } catch (Throwable t) {
-            return sBarCovered;
+            final Class<?> properties = Class.forName("android.os.SystemProperties");
+            final Object value = properties
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, COVER_PROPERTY, "0");
+            sBarCovered = "1".equals(value);
+        } catch (Throwable ignored) {
+            // No watcher, or a platform that will not answer: keep the last word.
         }
+        return sBarCovered;
     }
 
     /** The status bar's icon container, or null before the capture hook has run. */
