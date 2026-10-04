@@ -293,6 +293,7 @@ final class TrioHooks {
         hooked += group(module, cl, 9);
         hooked += group(module, cl, 10);
         hooked += group(module, cl, 11);
+        hooked += group(module, cl, 12);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -641,6 +642,7 @@ final class TrioHooks {
                 case 9: return hookOverviewGesture(module, cl);
                 case 10: return hookOverviewProxy(module, cl);
                 case 11: return hookOverviewProgress(module, cl);
+                case 12: return hookLaunchAnimation(module, cl);
                 default: return hookMobileType(module, cl);
             }
         } catch (Throwable t) {
@@ -1268,6 +1270,43 @@ final class TrioHooks {
                         final Object code = chain.getArg(0);
                         final Object result = chain.proceed();
                         if (code instanceof Integer && (Integer) code == 13) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /**
+     * Hears the moment an app takes the screen.
+     *
+     * <p>The status bar window controller is told when the bar is running an
+     * app's launch animation - the first thing that happens when a full-screen
+     * app like the camera comes forward, and well before the bar's own row
+     * fades out. Taking the window down on that report is what keeps the glyph
+     * from being the last thing on a bar that is on its way out.
+     */
+    private static int hookLaunchAnimation(XposedModule module, ClassLoader cl) {
+        final Class<?> controller = Refl.cls(
+                "com.android.systemui.statusbar.window.StatusBarWindowControllerImpl", cl);
+        final Class<?> state = Refl.cls(
+                "com.android.systemui.statusbar.window.StatusBarWindowControllerImpl$State", cl);
+        if (controller == null || state == null) {
+            log(module, "status bar window controller missing");
+            return 0;
+        }
+        final Field launching = Refl.field(state, "mIsLaunchAnimationRunning");
+        if (launching == null) {
+            log(module, "mIsLaunchAnimationRunning missing");
+            return 0;
+        }
+        return hook(module, Refl.method(controller, "apply", state),
+                "hyperduo-launch-animation", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object value = launching.get(chain.getArg(0));
+                        if (value instanceof Boolean && (Boolean) value) {
                             TrioOverlay.onOverviewPulse();
                         }
                         return result;
