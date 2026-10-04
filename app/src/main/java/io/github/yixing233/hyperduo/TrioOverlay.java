@@ -64,6 +64,31 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** True once the once-a-second re-check has been posted. */
+    private static volatile boolean sTicking;
+
+    /**
+     * Re-asks whether the window belongs on screen, once a second.
+     *
+     * <p>Every other path into that decision runs inside the host's draw pass,
+     * and a bar that is standing still does not draw - so a state that changes
+     * without the bar repainting (an app going full screen, the bar coming
+     * back) would otherwise be noticed only when something else forced a pass.
+     */
+    private static final Runnable TICK = new Runnable() {
+        @Override
+        public void run() {
+            for (TrioOverlay overlay : LIVE.values()) {
+                try {
+                    overlay.sync();
+                } catch (Throwable ignored) {
+                    // A host that went away mid-pass is not this task's problem.
+                }
+            }
+            BUSY_HANDLER.postDelayed(this, 1000L);
+        }
+    };
+
     /** Scratch rectangle for the visible-rect test; UI thread only. */
     private static final android.graphics.Rect VISIBLE_RECT =
             new android.graphics.Rect();
@@ -510,6 +535,10 @@ final class TrioOverlay {
      * schedule layout on the host.
      */
     void sync() {
+        if (!sTicking) {
+            sTicking = true;
+            BUSY_HANDLER.postDelayed(TICK, 1000L);
+        }
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
                 && effectiveAlpha(host) > 0f;
@@ -659,14 +688,9 @@ final class TrioOverlay {
     }
 
     /**
-     * The bar's own window type, not {@code TYPE_STATUS_BAR_ADDITIONAL}.
-     *
-     * <p>An additional-bar window sits on a layer above the bar and stays there
-     * whatever happens to the bar: a full-screen app that covers the bar leaves
-     * it painting over an app that is no longer behind a bar at all. The bar's
-     * own layer is the one the system moves out of the way for a full-screen
-     * app, and a window added to that layer afterwards draws above the bar
-     * while it is there and goes with it when it is not.
+     * {@code TYPE_STATUS_BAR_ADDITIONAL} is a hidden constant, so it is read
+     * reflectively and cached. The bar's own type cannot be used: the platform
+     * allows only one window of it, and the bar already owns it.
      *
      * <p>The fallback is the public overlay type, which needs no windowing
      * permission the system UI does not already hold.
@@ -676,7 +700,7 @@ final class TrioOverlay {
             int type = TYPE_FALLBACK;
             try {
                 final Field field = WindowManager.LayoutParams.class
-                        .getField("TYPE_STATUS_BAR");
+                        .getField("TYPE_STATUS_BAR_ADDITIONAL");
                 type = field.getInt(null);
             } catch (Throwable ignored) {
                 // Older platform: the public overlay type is close enough.
