@@ -292,6 +292,7 @@ final class TrioHooks {
         hooked += group(module, cl, 8);
         hooked += group(module, cl, 9);
         hooked += group(module, cl, 10);
+        hooked += group(module, cl, 11);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -639,6 +640,7 @@ final class TrioHooks {
                 case 8: return hookShadeExpansion(module, cl);
                 case 9: return hookOverviewGesture(module, cl);
                 case 10: return hookOverviewProxy(module, cl);
+                case 11: return hookOverviewProgress(module, cl);
                 default: return hookMobileType(module, cl);
             }
         } catch (Throwable t) {
@@ -1234,6 +1236,38 @@ final class TrioHooks {
                         final Object code = chain.getArg(0);
                         final Object result = chain.proceed();
                         if (code instanceof Integer && (Integer) code == 4) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /**
+     * Hears the overview gesture on the proxy the launcher really talks to.
+     *
+     * <p>The gesture does not go through SystemUI's own overview proxy: the
+     * launcher reports its progress over ISystemUiProxy, whose implementation
+     * answers on the binder thread and reads the float out of the parcel in
+     * transaction 13. Only the transaction number is read here - the parcel is
+     * left untouched for the code that has to parse it - which is what makes
+     * this hook safe to sit on a call that runs for every frame of a drag.
+     */
+    private static int hookOverviewProgress(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls(
+                "com.android.systemui.recents.LauncherProxyService$1", cl);
+        if (proxy == null) {
+            log(module, "LauncherProxyService$1 missing");
+            return 0;
+        }
+        return hook(module, Refl.method(proxy, "onTransact", int.class,
+                        android.os.Parcel.class, android.os.Parcel.class, int.class),
+                "hyperduo-overview-transact", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object code = chain.getArg(0);
+                        final Object result = chain.proceed();
+                        if (code instanceof Integer && (Integer) code == 13) {
                             TrioOverlay.onOverviewPulse();
                         }
                         return result;
