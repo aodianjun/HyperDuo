@@ -2031,10 +2031,27 @@ final class TrioHooks {
      */
     static int barInkColor() {
         final Object container = sStatusIconContainer;
-        if (container instanceof View) {
-            return iconTint((View) container);
+        if (!(container instanceof View)) {
+            return 0;
         }
-        return 0;
+        final int colour = iconTint((View) container);
+        if (colour != 0 && colour != sLastIconInk) {
+            sLastIconInk = colour;
+            sIconInkAt = android.os.SystemClock.uptimeMillis();
+        }
+        return colour;
+    }
+
+    /** The last colour read off the bar's icons, and when it changed. */
+    private static volatile int sLastIconInk;
+    private static volatile long sIconInkAt;
+
+    static int iconInkColor() {
+        return sLastIconInk;
+    }
+
+    static long iconInkAt() {
+        return sIconInkAt;
     }
 
     /** The first icon tint found under {@code view}, or 0. */

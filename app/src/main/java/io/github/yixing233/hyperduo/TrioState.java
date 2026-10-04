@@ -399,6 +399,10 @@ final class TrioState {
 
     // ------------------------------------------------------------------ colours
 
+    /** The field colour last seen, and when it changed. */
+    private int sLastField;
+    private long sFieldAt;
+
     /** The plain icon colour: what MIUI would paint the battery icon in. */
     int foreground() {
         // The style follows the bar, not the system theme: MIUI's own fields say
@@ -406,13 +410,21 @@ final class TrioState {
         // They are the first and only real answer here; the system's night mode is
         // kept as the last resort for a host whose fields never arrived (a host
         // inflated a moment ago, a bar whose tint never came through).
-        // The bar's own text colour first: it is what MIUI is painting the rest
-        // of the row in right now, and it cannot be stale the way the fields can
-        // be - a light background leaves them saying "white" while every icon on
-        // screen has gone black. The fields are the fallback.
-        int c = TrioHooks.barInkColor();
-        if (c == 0) {
-            c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        // Two sources, and neither can be trusted on its own: the fields lag
+        // behind a change of background (they still say "white" while every icon
+        // has gone black), and the icons keep their last colour once they are
+        // hidden by this module (they still say "black" on a dark launcher).
+        // Whichever changed more recently is the one that saw the change.
+        final int field = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        final long now = android.os.SystemClock.uptimeMillis();
+        if (field != sLastField) {
+            sLastField = field;
+            sFieldAt = now;
+        }
+        TrioHooks.barInkColor();
+        int c = field;
+        if (TrioHooks.iconInkColor() != 0 && TrioHooks.iconInkAt() > sFieldAt) {
+            c = TrioHooks.iconInkColor();
         }
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
