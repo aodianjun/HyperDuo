@@ -64,6 +64,9 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** Last sync trace logged, so the same one is not written twice. */
+    private static volatile String sLastSyncNote;
+
     /** True while the bar is not standing still. */
     private static volatile boolean sShadeBusy;
 
@@ -547,6 +550,23 @@ final class TrioOverlay {
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
                 && insetsAgree && !sShadeBusy;
+        if (host == sOwner) {
+            final String trace = "sync: hShown=" + host.isShown()
+                    + " hWin=" + host.getWindowVisibility()
+                    + " hA=" + effectiveAlpha(host)
+                    + " bShown=" + (bar != null && bar.isShown())
+                    + " bWin=" + (bar == null ? -9 : bar.getWindowVisibility())
+                    + " bA=" + (bar == null ? -9f : effectiveAlpha(bar))
+                    + " bWinA=" + windowAlpha(bar)
+                    + " onScreen=" + onScreen
+                    + " insets=" + insetsAgree
+                    + " busy=" + sShadeBusy
+                    + " -> " + visible;
+            if (!trace.equals(sLastSyncNote)) {
+                sLastSyncNote = trace;
+                TrioHooks.log(TrioHooks.LOG_INFO, trace);
+            }
+        }
         if (visible != shown) {
             shown = visible;
             // Alpha, not visibility: see hideNow().
