@@ -2016,85 +2016,46 @@ final class TrioHooks {
         return sBarCovered;
     }
 
-    /** The bar view whose colour is read as the bar's own ink, if any. */
-    private static java.lang.ref.WeakReference<View> sInkView;
-
     /**
-     * The colour the bar is painting its own icons in right now, or 0 when
-     * there is nothing to read it from.
+     * The colour the bar is painting its own icons in right now, or 0 when there
+     * is nothing to read it from.
      *
-     * <p>MIUI's tint fields describe the bar as MIUI set it up, and they are not
-     * always updated when the bar changes colour - a light background leaves
-     * them saying "white" while every icon on screen has gone black. An icon's
-     * own tint cannot be wrong about that: it is the colour the user is looking
-     * at.
+     * <p>MIUI's tint fields describe the bar as MIUI set it up, and they lag
+     * behind it when the bar changes colour, so for the moment in between they
+     * say white while every icon on screen has gone black. The icons in the
+     * bar's own icon container cannot be wrong about that: they are what the
+     * user is looking at.
      *
-     * <p>An icon is preferred over the clock: on the launcher the bar draws no
-     * clock at all, and the first text on the row belongs to the media carousel,
-     * which keeps its own colour whatever the background does.
+     * <p>Only that container is read. The rest of the row holds the media
+     * carousel and the notification icons, which keep colours of their own.
      */
     static int barInkColor() {
-        final View bar = sStatusBarView;
-        if (bar == null) {
-            return 0;
-        }
-        View ink = (sInkView == null) ? null : sInkView.get();
-        if (ink == null || ink.getParent() == null) {
-            ink = findTintedIcon(bar);
-            if (ink == null) {
-                ink = findInk(bar);
-            }
-            sInkView = new java.lang.ref.WeakReference<View>(ink);
-        }
-        if (ink instanceof android.widget.ImageView) {
-            final android.content.res.ColorStateList tint =
-                    ((android.widget.ImageView) ink).getImageTintList();
-            if (tint != null) {
-                return tint.getDefaultColor();
-            }
-        }
-        if (ink instanceof TextView) {
-            return ((TextView) ink).getCurrentTextColor();
+        final Object container = sStatusIconContainer;
+        if (container instanceof View) {
+            return iconTint((View) container);
         }
         return 0;
     }
 
-    /** The first icon on the row that carries a tint of its own. */
-    private static View findTintedIcon(View view) {
+    /** The first icon tint found under {@code view}, or 0. */
+    private static int iconTint(View view) {
         if (view instanceof android.widget.ImageView) {
             final android.content.res.ColorStateList tint =
                     ((android.widget.ImageView) view).getImageTintList();
-            if (tint != null && view.getVisibility() == View.VISIBLE) {
-                return view;
+            if (tint != null) {
+                return tint.getDefaultColor();
             }
         }
         if (view instanceof ViewGroup) {
             final ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                final View found = findTintedIcon(group.getChildAt(i));
-                if (found != null) {
+                final int found = iconTint(group.getChildAt(i));
+                if (found != 0) {
                     return found;
                 }
             }
         }
-        return null;
-    }
-
-    /** The first text the bar draws, as the last resort. */
-    private static View findInk(View view) {
-        if (view instanceof TextView && view.getVisibility() == View.VISIBLE) {
-            return view;
-        }
-        if (view instanceof ViewGroup) {
-            final ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                final View found = findInk(group.getChildAt(i));
-                if (found != null) {
-                    return found;
-                }
-            }
-        }
-        return null;
+        return 0;
     }
 
     /** The status bar's icon container, or null before the capture hook has run. */
