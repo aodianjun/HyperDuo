@@ -590,7 +590,7 @@ final class TrioOverlay {
         // screen". Nothing is lost when the insets say no - the row paints the
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && insetsAgree && unclipped && !sShadeBusy && drewRecently;
+                && insetsAgree && unclipped && !sShadeBusy;
         if (host == sOwner) {
             final String trace = "sync: hShown=" + host.isShown()
                     + " hWin=" + host.getWindowVisibility()
