@@ -86,7 +86,7 @@ final class TrioOverlay {
     };
 
     /** How long the bar stays stood down after the last report. */
-    private static final long HOLD_MS = 600L;
+    private static final long HOLD_MS = 800L;
 
     private static void pulse(String why) {
         setBusy(true, why);
@@ -379,7 +379,15 @@ final class TrioOverlay {
         }
         try {
             final WindowInsets insets = view.getRootWindowInsets();
-            return insets == null || insets.isVisible(WindowInsets.Type.statusBars());
+            if (insets == null) {
+                return true;
+            }
+            // Two questions, because a full-screen app answers them differently
+            // on different builds: the bar can still be reported visible while
+            // taking no room at all, which is exactly the state the window must
+            // not open in.
+            return insets.isVisible(WindowInsets.Type.statusBars())
+                    && insets.getInsets(WindowInsets.Type.statusBars()).top > 0;
         } catch (Throwable t) {
             return true;
         }
