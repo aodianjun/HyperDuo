@@ -2017,38 +2017,40 @@ final class TrioHooks {
     }
 
     /**
-     * The colour the bar is painting its own icons in right now, or 0 when there
-     * is nothing to read it from.
+     * The colour the bar is painting itself in right now, or 0 when there is
+     * nothing to read it from.
      *
      * <p>MIUI's tint fields describe the bar as MIUI set it up, and they lag
      * behind a change of background - they still say white while every icon has
-     * gone black. The icons cannot be wrong about it, but only the ones that are
-     * on screen: the signal and wifi icons are hidden by this module and keep
-     * whatever colour they had when they went, so they are skipped, and so is
-     * the media carousel, which keeps a colour of its own.
+     * gone black. The icons themselves are no better here: the signal and wifi
+     * icons are hidden by this module and keep whatever colour they had when
+     * they went, and the small status icons keep a tint that does not follow the
+     * background at all. The text the bar draws - the network speed readout - is
+     * the one thing on that row that is both visible and repainted with the
+     * background.
      */
     static int barInkColor() {
         final View bar = sStatusBarView;
         if (bar == null) {
             return 0;
         }
-        return visibleIconTint(bar);
+        final int text = visibleTextInk(bar);
+        if (text != 0) {
+            return text;
+        }
+        return 0;
     }
 
-    /** The tint of the first icon on the row that is really being drawn. */
-    private static int visibleIconTint(View view) {
-        if (view instanceof android.widget.ImageView && view.getVisibility() == View.VISIBLE
+    /** The colour of the first text the bar is really drawing. */
+    private static int visibleTextInk(View view) {
+        if (view instanceof TextView && view.getVisibility() == View.VISIBLE
                 && view.getWidth() > 0 && !insideMedia(view)) {
-            final android.content.res.ColorStateList tint =
-                    ((android.widget.ImageView) view).getImageTintList();
-            if (tint != null) {
-                return tint.getDefaultColor();
-            }
+            return ((TextView) view).getCurrentTextColor();
         }
         if (view instanceof ViewGroup) {
             final ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                final int found = visibleIconTint(group.getChildAt(i));
+                final int found = visibleTextInk(group.getChildAt(i));
                 if (found != 0) {
                     return found;
                 }
