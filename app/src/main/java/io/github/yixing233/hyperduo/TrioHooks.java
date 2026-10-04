@@ -2016,62 +2016,6 @@ final class TrioHooks {
         return sBarCovered;
     }
 
-    /**
-     * The colour the bar is painting itself in right now, or 0 when there is
-     * nothing to read it from.
-     *
-     * <p>MIUI's tint fields describe the bar as MIUI set it up, and they lag
-     * behind a change of background - they still say white while every icon has
-     * gone black. The icons themselves are no better here: the signal and wifi
-     * icons are hidden by this module and keep whatever colour they had when
-     * they went, and the small status icons keep a tint that does not follow the
-     * background at all. The text the bar draws - the network speed readout - is
-     * the one thing on that row that is both visible and repainted with the
-     * background.
-     */
-    static int barInkColor() {
-        final View bar = sStatusBarView;
-        if (bar == null) {
-            return 0;
-        }
-        final int text = visibleTextInk(bar);
-        if (text != 0) {
-            return text;
-        }
-        return 0;
-    }
-
-    /** The colour of the first text the bar is really drawing. */
-    private static int visibleTextInk(View view) {
-        if (view instanceof TextView && view.getVisibility() == View.VISIBLE
-                && view.getWidth() > 0 && !insideMedia(view)) {
-            return ((TextView) view).getCurrentTextColor();
-        }
-        if (view instanceof ViewGroup) {
-            final ViewGroup group = (ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                final int found = visibleTextInk(group.getChildAt(i));
-                if (found != 0) {
-                    return found;
-                }
-            }
-        }
-        return 0;
-    }
-
-    /** True for anything under the media carousel, which keeps its own colour. */
-    private static boolean insideMedia(View view) {
-        for (View current = view; current != null; ) {
-            final String name = current.getClass().getSimpleName();
-            if (name.contains("Media") || name.contains("Carousel") || name.contains("Island")) {
-                return true;
-            }
-            final ViewParent parent = current.getParent();
-            current = (parent instanceof View) ? (View) parent : null;
-        }
-        return false;
-    }
-
     /** The status bar's icon container, or null before the capture hook has run. */
     static Object statusIconContainer() {
         return sStatusIconContainer;
