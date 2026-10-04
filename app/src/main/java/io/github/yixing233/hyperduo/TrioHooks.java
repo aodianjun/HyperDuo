@@ -2016,6 +2016,52 @@ final class TrioHooks {
         return sBarCovered;
     }
 
+    /** The bar view whose colour is read as the bar's own ink, if any. */
+    private static java.lang.ref.WeakReference<View> sInkView;
+
+    /**
+     * The colour the bar is painting its own text and icons in right now, or 0
+     * when there is nothing to read it from.
+     *
+     * <p>MIUI's tint fields describe the bar as MIUI set it up, and they are not
+     * always updated when the bar changes colour - a light background leaves
+     * them saying "white" while every icon on screen has gone black. The text
+     * the bar is drawing with cannot be wrong about that: it is the colour the
+     * user is looking at.
+     */
+    static int barInkColor() {
+        final View bar = sStatusBarView;
+        if (bar == null) {
+            return 0;
+        }
+        View ink = (sInkView == null) ? null : sInkView.get();
+        if (ink == null || ink.getParent() == null) {
+            ink = findInk(bar);
+            sInkView = new java.lang.ref.WeakReference<View>(ink);
+        }
+        if (ink instanceof TextView) {
+            return ((TextView) ink).getCurrentTextColor();
+        }
+        return 0;
+    }
+
+    /** The first text the bar draws, which is the clock in practice. */
+    private static View findInk(View view) {
+        if (view instanceof TextView) {
+            return view;
+        }
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                final View found = findInk(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
     /** The status bar's icon container, or null before the capture hook has run. */
     static Object statusIconContainer() {
         return sStatusIconContainer;
@@ -2322,10 +2368,7 @@ final class TrioHooks {
         if (label.getVisibility() != View.VISIBLE
                 || !text.contentEquals(label.getText())
                 || label.suffixScale != TrioConfig.appearance().typeSuffixScale
-                // The stored setting is a dp; the label's text size is the px it
-                // resolves to, so compare through the same conversion the posted
-                // path applies rather than raw against raw.
-                || label.getTextSize() != outTypeSizePx(container)) {
+                || label.getTextSize() != TrioConfig.get().outTypeSize) {
             requestOutTypeSync(container);
             return;
         }
@@ -2523,16 +2566,12 @@ final class TrioHooks {
         }
         // Its own setting, not the in-ring type_size: that one is authored for
         // the ring canvas' 120x120 design space and comes out far too small
-        // once the label stands in the status bar's real pixel space. The
-        // setting is a dp (the retired key was raw pixels, which made one slider
-        // value a different physical size on every density), so the pixels it
-        // resolves to follow the display here.
-        final float size = outTypeSizePx(container);
+        // once the label stands in the status bar's real pixel space.
+        final float size = a.outTypeSize;
         if (label.getTextSize() != size) {
             // PX, not the SP that the one-argument overload would use: the
-            // status bar lays out in raw pixels, and the dp has already been
-            // resolved by hand rather than being scaled by the user's
-            // font-size setting.
+            // status bar lays out in raw pixels, so the value is applied as-is
+            // rather than scaled by the user's font-size setting.
             label.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
         }
         final Typeface typeface = TrioRenderer.typefaceFor(a.typeWeight);
@@ -2719,21 +2758,6 @@ final class TrioHooks {
     private static int outSignalMargin(View container) {
         final float density = container.getResources().getDisplayMetrics().density;
         return Math.round(TrioConfig.appearance().outSignalMargin * density);
-    }
-
-    /**
-     * The out-of-ring label's font size in pixels, after the dp setting.
-     *
-     * <p>Both the posted update and the layout-pass change check go through
-     * here, so a slider move and a re-measure can never disagree about the
-     * target - the same pattern {@link #outSignalHeight} uses for the reading.
-     * The px that one slider value lands on now follows the display, which is
-     * the whole point of the dp key: the retired raw-pixel key made the same
-     * value a different physical size on every density.
-     */
-    private static float outTypeSizePx(View container) {
-        final float density = container.getResources().getDisplayMetrics().density;
-        return TrioConfig.appearance().outTypeSize * density;
     }
 
     /**
