@@ -1910,6 +1910,66 @@ final class TrioHooks {
         return null;
     }
 
+    /**
+     * Apps that own the whole screen and leave the bar covered rather than
+     * hidden.
+     *
+     * <p>A window cannot be asked whether something is drawn over it: the
+     * platform keeps that answer to itself, and the insets describe the bar as
+     * the bar sees itself. The one thing that is knowable is which app is in
+     * front, so the apps that are known to take the screen are named here.
+     */
+    private static final String[] FULLSCREEN_PACKAGES = {
+            "com.android.camera",
+    };
+
+    /** Package in front, refreshed by the overlay's once-a-second tick. */
+    private static volatile String sForeground;
+
+    /** Reads the package in front, if the platform lets the module ask. */
+    static void refreshForeground() {
+        final String pkg = foregroundPackage();
+        if (pkg != null && !pkg.equals(sForeground)) {
+            sForeground = pkg;
+            log(sModule, "foreground: " + pkg);
+        }
+    }
+
+    /** True while the app in front is one of {@link #FULLSCREEN_PACKAGES}. */
+    static boolean foregroundOwnsScreen() {
+        final String pkg = sForeground;
+        if (pkg == null) {
+            return false;
+        }
+        for (int i = 0; i < FULLSCREEN_PACKAGES.length; i++) {
+            if (pkg.equals(FULLSCREEN_PACKAGES[i])) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String foregroundPackage() {
+        try {
+            final Class<?> atm = Class.forName("android.app.ActivityTaskManager");
+            final Object service = atm.getMethod("getService").invoke(null);
+            if (service == null) {
+                return null;
+            }
+            final Object info = atm.getMethod("getFocusedRootTaskInfo").invoke(service);
+            if (info == null) {
+                return null;
+            }
+            final Object activity = info.getClass().getField("topActivity").get(info);
+            if (activity instanceof android.content.ComponentName) {
+                return ((android.content.ComponentName) activity).getPackageName();
+            }
+        } catch (Throwable ignored) {
+            // No permission, or an older platform: the list simply stays empty.
+        }
+        return null;
+    }
+
     /** The status bar's icon container, or null before the capture hook has run. */
     static Object statusIconContainer() {
         return sStatusIconContainer;

@@ -78,6 +78,7 @@ final class TrioOverlay {
     private static final Runnable TICK = new Runnable() {
         @Override
         public void run() {
+            TrioHooks.refreshForeground();
             for (TrioOverlay overlay : LIVE.values()) {
                 try {
                     overlay.sync();
@@ -587,7 +588,8 @@ final class TrioOverlay {
         // screen". Nothing is lost when the insets say no - the row paints the
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && insetsAgree && unclipped && !sShadeBusy;
+                && insetsAgree && unclipped && !sShadeBusy
+                && !TrioHooks.foregroundOwnsScreen();
         if (host == sOwner) {
             final String trace = "sync: hShown=" + host.isShown()
                     + " hWin=" + host.getWindowVisibility()
