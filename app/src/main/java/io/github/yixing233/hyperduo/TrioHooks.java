@@ -1923,6 +1923,22 @@ final class TrioHooks {
             "com.android.camera",
     };
 
+    /**
+     * Asks every known host to draw again.
+     *
+     * <p>Not the full {@link #invalidateHosts()}: that one also asks the bar to
+     * lay out again, which is right after a real change and far too much twice
+     * a second. This only repaints the hosts, and it is what turns "the bar is
+     * drawing" into a question that can be asked at all.
+     */
+    static void nudgeHosts() {
+        synchronized (HOSTS) {
+            for (int i = 0; i < HOSTS.size(); i++) {
+                HOSTS.get(i).host.invalidate();
+            }
+        }
+    }
+
     /** Package in front, refreshed by the overlay's once-a-second tick. */
     private static volatile String sForeground;
 

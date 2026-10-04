@@ -78,7 +78,9 @@ final class TrioOverlay {
     private static final Runnable TICK = new Runnable() {
         @Override
         public void run() {
-            TrioHooks.refreshForeground();
+            // A window that is completely covered is not drawn, so a bar that
+            // answers this nudge is a bar that is really on screen.
+            TrioHooks.nudgeHosts();
             for (TrioOverlay overlay : LIVE.values()) {
                 try {
                     overlay.sync();
@@ -86,7 +88,7 @@ final class TrioOverlay {
                     // A host that went away mid-pass is not this task's problem.
                 }
             }
-            BUSY_HANDLER.postDelayed(this, 1000L);
+            BUSY_HANDLER.postDelayed(this, 500L);
         }
     };
 
@@ -538,7 +540,7 @@ final class TrioOverlay {
     void sync() {
         if (!sTicking) {
             sTicking = true;
-            BUSY_HANDLER.postDelayed(TICK, 1000L);
+            BUSY_HANDLER.postDelayed(TICK, 500L);
         }
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
@@ -588,8 +590,7 @@ final class TrioOverlay {
         // screen". Nothing is lost when the insets say no - the row paints the
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && insetsAgree && unclipped && !sShadeBusy
-                && !TrioHooks.foregroundOwnsScreen();
+                && insetsAgree && unclipped && !sShadeBusy && drewRecently;
         if (host == sOwner) {
             final String trace = "sync: hShown=" + host.isShown()
                     + " hWin=" + host.getWindowVisibility()
