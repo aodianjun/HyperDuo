@@ -294,7 +294,6 @@ final class TrioHooks {
         hooked += group(module, cl, 10);
         hooked += group(module, cl, 11);
         hooked += group(module, cl, 12);
-        startCoverWatcher();
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -1990,66 +1989,30 @@ final class TrioHooks {
     /** True while the bar's window is known to be covered by an app. */
     private static volatile boolean sBarCovered;
 
-    static boolean barCovered() {
-        return sBarCovered;
-    }
-
     /**
-     * Watches app launches and asks the platform, through root, whether the bar
-     * is covered.
+     * Where the watcher leaves its answer: 1 while the bar is covered, 0 while
+     * it is not.
      *
-     * <p>Nothing inside SystemUI can answer that: a covered window still
-     * reports itself visible and opaque, and the module is not allowed to read
-     * the task list. The window manager does know - it is the one marking the
-     * bar's window not visible - so the question is put to it with the root the
-     * device already has, once per app launch rather than on a timer.
+     * <p>The watcher is a root script (service.d) because nothing inside
+     * SystemUI can answer the question: a covered window still reports itself
+     * visible and opaque, the module is not allowed to read the task list, and
+     * the window manager - which does know - will not say without root. The
+     * script watches app launches and asks it there.
      */
-    static void startCoverWatcher() {
-        final Thread thread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    final Process process = Runtime.getRuntime().exec(new String[]{
-                            "su", "-c", "logcat -s ActivityTaskManager:I"});
-                    final java.io.BufferedReader reader = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(process.getInputStream()));
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        if (line.contains("Displayed ") || line.contains("cmp=")) {
-                            try {
-                                Thread.sleep(1200L);
-                            } catch (InterruptedException ignored) {
-                                return;
-                            }
-                            checkCovered();
-                        }
-                    }
-                } catch (Throwable t) {
-                    log(sModule, "cover watcher unavailable: " + t);
-                }
-            }
-        }, "hyperduo-cover");
-        thread.setDaemon(true);
-        thread.start();
-    }
+    private static final String COVER_FILE = "/data/local/tmp/hd_covered";
 
-    /** Asks the window manager whether the bar's window is still visible. */
-    private static void checkCovered() {
+    /** Reads the watcher's answer; false when there is no watcher. */
+    static boolean barCovered() {
         try {
-            final Process process = Runtime.getRuntime().exec(new String[]{"su", "-c",
-                    "dumpsys window windows | grep -A 20 'StatusBar1' | grep -m1 isVisible="});
             final java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(process.getInputStream()));
+                    new java.io.FileReader(COVER_FILE));
             final String line = reader.readLine();
-            process.waitFor();
-            final boolean covered = line != null && line.contains("isVisible=false");
-            if (covered != sBarCovered) {
-                sBarCovered = covered;
-                log(sModule, "bar covered: " + covered);
-                TrioOverlay.onCoverChanged();
-            }
-        } catch (Throwable ignored) {
-            // No root, or a window manager that words it differently.
+            reader.close();
+            final boolean covered = line != null && line.trim().equals("1");
+            sBarCovered = covered;
+            return covered;
+        } catch (Throwable t) {
+            return sBarCovered;
         }
     }
 
