@@ -659,16 +659,24 @@ final class TrioOverlay {
     }
 
     /**
-     * {@code TYPE_STATUS_BAR_ADDITIONAL} is a hidden constant, so it is read
-     * reflectively and cached. The fallback is the public overlay type, which
-     * needs no windowing permission the system UI does not already hold.
+     * The bar's own window type, not {@code TYPE_STATUS_BAR_ADDITIONAL}.
+     *
+     * <p>An additional-bar window sits on a layer above the bar and stays there
+     * whatever happens to the bar: a full-screen app that covers the bar leaves
+     * it painting over an app that is no longer behind a bar at all. The bar's
+     * own layer is the one the system moves out of the way for a full-screen
+     * app, and a window added to that layer afterwards draws above the bar
+     * while it is there and goes with it when it is not.
+     *
+     * <p>The fallback is the public overlay type, which needs no windowing
+     * permission the system UI does not already hold.
      */
     private static int windowType() {
         if (sWindowType == 0) {
             int type = TYPE_FALLBACK;
             try {
                 final Field field = WindowManager.LayoutParams.class
-                        .getField("TYPE_STATUS_BAR_ADDITIONAL");
+                        .getField("TYPE_STATUS_BAR");
                 type = field.getInt(null);
             } catch (Throwable ignored) {
                 // Older platform: the public overlay type is close enough.
