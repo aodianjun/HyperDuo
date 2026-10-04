@@ -2020,14 +2020,18 @@ final class TrioHooks {
     private static java.lang.ref.WeakReference<View> sInkView;
 
     /**
-     * The colour the bar is painting its own text and icons in right now, or 0
-     * when there is nothing to read it from.
+     * The colour the bar is painting its own icons in right now, or 0 when
+     * there is nothing to read it from.
      *
      * <p>MIUI's tint fields describe the bar as MIUI set it up, and they are not
      * always updated when the bar changes colour - a light background leaves
-     * them saying "white" while every icon on screen has gone black. The text
-     * the bar is drawing with cannot be wrong about that: it is the colour the
-     * user is looking at.
+     * them saying "white" while every icon on screen has gone black. An icon's
+     * own tint cannot be wrong about that: it is the colour the user is looking
+     * at.
+     *
+     * <p>An icon is preferred over the clock: on the launcher the bar draws no
+     * clock at all, and the first text on the row belongs to the media carousel,
+     * which keeps its own colour whatever the background does.
      */
     static int barInkColor() {
         final View bar = sStatusBarView;
@@ -2036,8 +2040,18 @@ final class TrioHooks {
         }
         View ink = (sInkView == null) ? null : sInkView.get();
         if (ink == null || ink.getParent() == null) {
-            ink = findInk(bar);
+            ink = findTintedIcon(bar);
+            if (ink == null) {
+                ink = findInk(bar);
+            }
             sInkView = new java.lang.ref.WeakReference<View>(ink);
+        }
+        if (ink instanceof android.widget.ImageView) {
+            final android.content.res.ColorStateList tint =
+                    ((android.widget.ImageView) ink).getImageTintList();
+            if (tint != null) {
+                return tint.getDefaultColor();
+            }
         }
         if (ink instanceof TextView) {
             return ((TextView) ink).getCurrentTextColor();
@@ -2045,9 +2059,30 @@ final class TrioHooks {
         return 0;
     }
 
-    /** The first text the bar draws, which is the clock in practice. */
+    /** The first icon on the row that carries a tint of its own. */
+    private static View findTintedIcon(View view) {
+        if (view instanceof android.widget.ImageView) {
+            final android.content.res.ColorStateList tint =
+                    ((android.widget.ImageView) view).getImageTintList();
+            if (tint != null && view.getVisibility() == View.VISIBLE) {
+                return view;
+            }
+        }
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                final View found = findTintedIcon(group.getChildAt(i));
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** The first text the bar draws, as the last resort. */
     private static View findInk(View view) {
-        if (view instanceof TextView) {
+        if (view instanceof TextView && view.getVisibility() == View.VISIBLE) {
             return view;
         }
         if (view instanceof ViewGroup) {
