@@ -415,16 +415,13 @@ final class TrioState {
         // has gone black), and the icons keep their last colour once they are
         // hidden by this module (they still say "black" on a dark launcher).
         // Whichever changed more recently is the one that saw the change.
-        final int field = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
-        final long now = android.os.SystemClock.uptimeMillis();
-        if (field != sLastField) {
-            sLastField = field;
-            sFieldAt = now;
-        }
-        TrioHooks.barInkColor();
-        int c = field;
-        if (TrioHooks.iconInkColor() != 0 && TrioHooks.iconInkAt() > sFieldAt) {
-            c = TrioHooks.iconInkColor();
+        // The icons that are really on screen are read first: they cannot be
+        // stale the way the fields can, and only the ones being drawn are asked,
+        // so a hidden icon cannot answer with a colour from before it went. The
+        // fields are the fallback for a bar with no such icon.
+        int c = TrioHooks.barInkColor();
+        if (c == 0) {
+            c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
         }
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;

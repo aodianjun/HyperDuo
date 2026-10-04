@@ -2021,42 +2021,24 @@ final class TrioHooks {
      * is nothing to read it from.
      *
      * <p>MIUI's tint fields describe the bar as MIUI set it up, and they lag
-     * behind it when the bar changes colour, so for the moment in between they
-     * say white while every icon on screen has gone black. The icons in the
-     * bar's own icon container cannot be wrong about that: they are what the
-     * user is looking at.
-     *
-     * <p>Only that container is read. The rest of the row holds the media
-     * carousel and the notification icons, which keep colours of their own.
+     * behind a change of background - they still say white while every icon has
+     * gone black. The icons cannot be wrong about it, but only the ones that are
+     * on screen: the signal and wifi icons are hidden by this module and keep
+     * whatever colour they had when they went, so they are skipped, and so is
+     * the media carousel, which keeps a colour of its own.
      */
     static int barInkColor() {
-        final Object container = sStatusIconContainer;
-        if (!(container instanceof View)) {
+        final View bar = sStatusBarView;
+        if (bar == null) {
             return 0;
         }
-        final int colour = iconTint((View) container);
-        if (colour != 0 && colour != sLastIconInk) {
-            sLastIconInk = colour;
-            sIconInkAt = android.os.SystemClock.uptimeMillis();
-        }
-        return colour;
+        return visibleIconTint(bar);
     }
 
-    /** The last colour read off the bar's icons, and when it changed. */
-    private static volatile int sLastIconInk;
-    private static volatile long sIconInkAt;
-
-    static int iconInkColor() {
-        return sLastIconInk;
-    }
-
-    static long iconInkAt() {
-        return sIconInkAt;
-    }
-
-    /** The first icon tint found under {@code view}, or 0. */
-    private static int iconTint(View view) {
-        if (view instanceof android.widget.ImageView) {
+    /** The tint of the first icon on the row that is really being drawn. */
+    private static int visibleIconTint(View view) {
+        if (view instanceof android.widget.ImageView && view.getVisibility() == View.VISIBLE
+                && view.getWidth() > 0 && !insideMedia(view)) {
             final android.content.res.ColorStateList tint =
                     ((android.widget.ImageView) view).getImageTintList();
             if (tint != null) {
@@ -2066,13 +2048,26 @@ final class TrioHooks {
         if (view instanceof ViewGroup) {
             final ViewGroup group = (ViewGroup) view;
             for (int i = 0; i < group.getChildCount(); i++) {
-                final int found = iconTint(group.getChildAt(i));
+                final int found = visibleIconTint(group.getChildAt(i));
                 if (found != 0) {
                     return found;
                 }
             }
         }
         return 0;
+    }
+
+    /** True for anything under the media carousel, which keeps its own colour. */
+    private static boolean insideMedia(View view) {
+        for (View current = view; current != null; ) {
+            final String name = current.getClass().getSimpleName();
+            if (name.contains("Media") || name.contains("Carousel") || name.contains("Island")) {
+                return true;
+            }
+            final ViewParent parent = current.getParent();
+            current = (parent instanceof View) ? (View) parent : null;
+        }
+        return false;
     }
 
     /** The status bar's icon container, or null before the capture hook has run. */
