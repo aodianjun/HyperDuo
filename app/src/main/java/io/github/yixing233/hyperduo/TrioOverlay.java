@@ -511,8 +511,13 @@ final class TrioOverlay {
         // Drawing wins over what the insets claim: a bar that is painting itself is
         // on screen by definition, and a full-screen app's hidden bar stops painting
         // long before anything else notices.
+        // The insets have the last word: a full-screen app takes the bar away
+        // without any view in it changing, and the bar's own row keeps drawing
+        // through the transition, so drawing alone cannot be read as "on
+        // screen". Nothing is lost when the insets say no - the row paints the
+        // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && (drewRecently || insetsAgree) && !sShadeBusy;
+                && insetsAgree && !sShadeBusy;
         if (visible != shown) {
             shown = visible;
             // Alpha, not visibility: see hideNow().

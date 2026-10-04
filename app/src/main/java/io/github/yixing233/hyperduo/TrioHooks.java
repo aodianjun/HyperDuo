@@ -291,6 +291,7 @@ final class TrioHooks {
         hooked += group(module, cl, 7);
         hooked += group(module, cl, 8);
         hooked += group(module, cl, 9);
+        hooked += group(module, cl, 10);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -637,6 +638,7 @@ final class TrioHooks {
                 case 6: return hookIconContainerLayout(module, cl);
                 case 8: return hookShadeExpansion(module, cl);
                 case 9: return hookOverviewGesture(module, cl);
+                case 10: return hookOverviewProxy(module, cl);
                 default: return hookMobileType(module, cl);
             }
         } catch (Throwable t) {
@@ -1206,6 +1208,37 @@ final class TrioHooks {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /**
+     * Hears the overview gesture where the launcher actually sends it.
+     *
+     * <p>The gesture arrives as a binder transaction on SystemUI's own overview
+     * proxy, and transaction 4 is the progress report the launcher sends while
+     * the finger is moving. The methods behind it are not always present on a
+     * given build, but the transaction number is the interface itself, so this
+     * is the signal that exists everywhere. Only the transaction number is read
+     * - the parcel is left untouched for the code that has to parse it.
+     */
+    private static int hookOverviewProxy(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls("com.android.systemui.recents.MiuiOverviewProxy", cl);
+        if (proxy == null) {
+            log(module, "MiuiOverviewProxy missing");
+            return 0;
+        }
+        return hook(module, Refl.method(proxy, "onTransact", int.class,
+                        android.os.Parcel.class, android.os.Parcel.class, int.class),
+                "hyperduo-overview-proxy", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object code = chain.getArg(0);
+                        final Object result = chain.proceed();
+                        if (code instanceof Integer && (Integer) code == 4) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
     }
 
     // ------------------------------------------------------------- registrations
