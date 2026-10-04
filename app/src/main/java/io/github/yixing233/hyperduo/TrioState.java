@@ -406,7 +406,14 @@ final class TrioState {
         // They are the first and only real answer here; the system's night mode is
         // kept as the last resort for a host whose fields never arrived (a host
         // inflated a moment ago, a bar whose tint never came through).
-        int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        // The bar's own text colour first: it is what MIUI is painting the rest
+        // of the row in right now, and it cannot be stale the way the fields can
+        // be - a light background leaves them saying "white" while every icon on
+        // screen has gone black. The fields are the fallback.
+        int c = TrioHooks.barInkColor();
+        if (c == 0) {
+            c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        }
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
         }
