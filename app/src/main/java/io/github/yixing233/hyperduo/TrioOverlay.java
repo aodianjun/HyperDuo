@@ -175,7 +175,7 @@ final class TrioOverlay {
         // The window's own visibility is not asked about here: the window being
         // hidden is the very thing this call is undoing, and its visibility
         // follows the views inside it. Only the view's own state is read.
-        final boolean hostVisible = host.isShown() && host.getAlpha() > 0f;
+        final boolean hostVisible = host.isShown() && effectiveAlpha(host) > 0f;
         host.getLocationOnScreen(location);
         final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
         final boolean onScreen = location[0] + host.getWidth() > 0
@@ -355,6 +355,27 @@ final class TrioOverlay {
         }
     }
 
+    /**
+     * The alpha a view really shows at: its own, times every ancestor's.
+     *
+     * <p>MIUI fades the bar out for a full-screen app by fading the row's
+     * container, not the battery view inside it, so asking the host alone is
+     * asking the wrong view - it still reports itself fully opaque while
+     * nothing of it is on screen.
+     */
+    private static float effectiveAlpha(View view) {
+        float alpha = 1f;
+        for (View current = view; current != null; ) {
+            alpha *= current.getAlpha();
+            if (alpha <= 0f) {
+                return 0f;
+            }
+            final ViewParent parent = current.getParent();
+            current = (parent instanceof View) ? (View) parent : null;
+        }
+        return alpha;
+    }
+
     /** {@code Host<Parent<...}}, truncated: the log line is a diagnosis, not a dump. */
     /** The alpha of the window a view lives in - not the view's own. */
     private static float windowAlpha(View view) {
@@ -484,7 +505,7 @@ final class TrioOverlay {
     void sync() {
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
-                && host.getAlpha() > 0f;
+                && effectiveAlpha(host) > 0f;
         // The bar is what is on screen, not this view: MIUI fades the bar's
         // contents during a shade pull, hides them outright when the shade is
         // open or a full-screen app takes the screen, and the window has to go
@@ -493,7 +514,7 @@ final class TrioOverlay {
         final View bar = TrioHooks.statusBarView();
         final boolean barVisible = bar == null
                 || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
-                    && bar.getAlpha() > 0f);
+                    && effectiveAlpha(bar) > 0f);
         // A bar that hides by sliding off the screen leaves every view reporting
         // itself as shown - the window is still visible, the views are still
         // attached - so the host's rectangle on screen is part of the test. That
