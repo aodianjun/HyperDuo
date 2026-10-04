@@ -64,6 +64,11 @@ final class TrioOverlay {
     private static final int TYPE_FALLBACK = 2038;
 
     /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** Called when the bar goes from covered to not, or the other way. */
+    static void onCoverChanged() {
+        TrioHooks.invalidateHosts();
+    }
+
     /** True once the once-a-second re-check has been posted. */
     private static volatile boolean sTicking;
 
@@ -590,7 +595,8 @@ final class TrioOverlay {
         // screen". Nothing is lost when the insets say no - the row paints the
         // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && insetsAgree && unclipped && !sShadeBusy;
+                && insetsAgree && unclipped && !sShadeBusy
+                && !TrioHooks.barCovered();
         if (host == sOwner) {
             final String trace = "sync: hShown=" + host.isShown()
                     + " hWin=" + host.getWindowVisibility()

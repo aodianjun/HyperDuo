@@ -294,6 +294,7 @@ final class TrioHooks {
         hooked += group(module, cl, 10);
         hooked += group(module, cl, 11);
         hooked += group(module, cl, 12);
+        startCoverWatcher();
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -1984,6 +1985,72 @@ final class TrioHooks {
             // No permission, or an older platform: the list simply stays empty.
         }
         return null;
+    }
+
+    /** True while the bar's window is known to be covered by an app. */
+    private static volatile boolean sBarCovered;
+
+    static boolean barCovered() {
+        return sBarCovered;
+    }
+
+    /**
+     * Watches app launches and asks the platform, through root, whether the bar
+     * is covered.
+     *
+     * <p>Nothing inside SystemUI can answer that: a covered window still
+     * reports itself visible and opaque, and the module is not allowed to read
+     * the task list. The window manager does know - it is the one marking the
+     * bar's window not visible - so the question is put to it with the root the
+     * device already has, once per app launch rather than on a timer.
+     */
+    static void startCoverWatcher() {
+        final Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final Process process = Runtime.getRuntime().exec(new String[]{
+                            "su", "-c", "logcat -s ActivityTaskManager:I"});
+                    final java.io.BufferedReader reader = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(process.getInputStream()));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.contains("Displayed ") || line.contains("cmp=")) {
+                            try {
+                                Thread.sleep(1200L);
+                            } catch (InterruptedException ignored) {
+                                return;
+                            }
+                            checkCovered();
+                        }
+                    }
+                } catch (Throwable t) {
+                    log(sModule, "cover watcher unavailable: " + t);
+                }
+            }
+        }, "hyperduo-cover");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /** Asks the window manager whether the bar's window is still visible. */
+    private static void checkCovered() {
+        try {
+            final Process process = Runtime.getRuntime().exec(new String[]{"su", "-c",
+                    "dumpsys window windows | grep -A 20 'StatusBar1' | grep -m1 isVisible="});
+            final java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream()));
+            final String line = reader.readLine();
+            process.waitFor();
+            final boolean covered = line != null && line.contains("isVisible=false");
+            if (covered != sBarCovered) {
+                sBarCovered = covered;
+                log(sModule, "bar covered: " + covered);
+                TrioOverlay.onCoverChanged();
+            }
+        } catch (Throwable ignored) {
+            // No root, or a window manager that words it differently.
+        }
     }
 
     /** The status bar's icon container, or null before the capture hook has run. */
