@@ -539,7 +539,12 @@ final class TrioOverlay {
         final boolean windowsOpaque = windowAlpha(host) > 0f && windowAlpha(bar) > 0f;
         final boolean drewRecently = host == sLastDrawHost
                 && SystemClock.uptimeMillis() - sLastDraw < DRAW_GRACE_MS;
-        final boolean insetsAgree = insetsShowBar(host);
+        // Asked of the glyph's own window, not of the host: the host lives inside
+        // the status bar's window, whose insets always describe the bar as the
+        // bar sees itself. The glyph window is a window of its own sitting above
+        // the bar, so what the system tells it about the bar is the truth about
+        // what is on screen - a full-screen app answers no.
+        final boolean insetsAgree = insetsShowBar(glyph != null ? glyph : host);
         // Drawing wins over what the insets claim: a bar that is painting itself is
         // on screen by definition, and a full-screen app's hidden bar stops painting
         // long before anything else notices.
