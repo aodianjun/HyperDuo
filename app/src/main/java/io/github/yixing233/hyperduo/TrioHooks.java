@@ -1362,6 +1362,30 @@ final class TrioHooks {
      * Runs inside {@code onLayout}, after the container has finished positioning
      * children.
      */
+    /** Last container reported as skipped, so the same one is not logged twice. */
+    private static volatile String sLastSkipped;
+
+    /**
+     * Records a container whose icons are left alone.
+     *
+     * <p>Hiding is limited to containers that own a live host, and a container
+     * that is skipped keeps drawing its own signal icons. On the lock screen
+     * that is what puts the native signal icons next to the glyph, so the chain
+     * is written down: it says which container it was and where it sits.
+     */
+    private static void noteSkipped(View container) {
+        final StringBuilder chain = new StringBuilder(container.getClass().getSimpleName());
+        for (ViewParent p = container.getParent(); p != null && chain.length() < 200;
+             p = (p instanceof View) ? ((View) p).getParent() : null) {
+            chain.append('<').append(p.getClass().getSimpleName());
+        }
+        final String note = "skip container: " + chain;
+        if (!note.equals(sLastSkipped)) {
+            sLastSkipped = note;
+            log(sModule, note);
+        }
+    }
+
     private static void settle(ViewGroup container) {
         if (!TrioConfig.get().enabled) {
             return;
@@ -1371,6 +1395,7 @@ final class TrioHooks {
         final boolean owned = isOwned(container);
         diagnose(container, owned);
         if (!owned) {
+            noteSkipped(container);
             return;
         }
         // Refresh-only: this runs inside onLayout, so it may reposition the
