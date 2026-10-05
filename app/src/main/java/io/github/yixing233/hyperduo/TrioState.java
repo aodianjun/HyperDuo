@@ -422,6 +422,11 @@ final class TrioState {
         // They are the first and only real answer here; the system's night mode is
         // kept as the last resort for a host whose fields never arrived (a host
         // inflated a moment ago, a bar whose tint never came through).
+        // Two sources, and neither can be trusted on its own: the fields lag
+        // behind a change of background (they still say "white" while every icon
+        // has gone black), and the icons keep their last colour once they are
+        // hidden by this module (they still say "black" on a dark launcher).
+        // Whichever changed more recently is the one that saw the change.
         int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;

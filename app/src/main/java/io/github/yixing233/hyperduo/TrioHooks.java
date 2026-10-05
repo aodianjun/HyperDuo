@@ -190,9 +190,11 @@ final class TrioHooks {
      * reads the flag rather than walking for the container, because the ask
      * happens in contexts ({@code foldedSlots} during a layout, the draw gate)
      * where no container is at hand - and the flag is global by nature: MIUI
-     * hides the battery of every container at once.
+     * hides the battery of every container at once. The glyph window of
+     * {@link TrioOverlay} reads it for the same reason the draw gate does: a
+     * battery that MIUI is not painting has no row the window may cover.
      */
-    private static boolean islandHideBattery() {
+    static boolean islandHideBattery() {
         return TrioState.sIslandHideBattery;
     }
 
@@ -330,6 +332,11 @@ final class TrioHooks {
         hooked += group(module, cl, 8);
         hooked += group(module, cl, 9);
         hooked += group(module, cl, 10);
+        hooked += group(module, cl, 11);
+        hooked += group(module, cl, 12);
+        hooked += group(module, cl, 13);
+        hooked += group(module, cl, 14);
+        hooked += group(module, cl, 15);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -688,6 +695,11 @@ final class TrioHooks {
                 case 8: return hookMobileTypeVisibility(module, cl);
                 case 9: return hookMeterTint(module, cl);
                 case 10: return hookIslandHide(module, cl);
+                case 11: return hookShadeExpansion(module, cl);
+                case 12: return hookOverviewGesture(module, cl);
+                case 13: return hookOverviewProxy(module, cl);
+                case 14: return hookOverviewProgress(module, cl);
+                case 15: return hookLaunchAnimation(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -823,8 +835,20 @@ final class TrioHooks {
                             // the two cannot show at once.
                             final TrioOverlay overlay = TrioOverlay.active(host, state);
                             if (overlay != null) {
-                                canvas.drawColor(0, PorterDuff.Mode.CLEAR);
                                 overlay.sync();
+                                if (overlay.covering()) {
+                                    // The window is painting the glyph, so this
+                                    // row has to stay blank: painting here as
+                                    // well is what put two glyphs on screen, a
+                                    // few pixels apart.
+                                    canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+                                } else {
+                                    // The window is not painting - the shade is
+                                    // moving, the bar is off screen - so the row
+                                    // draws the glyph itself and the trio stays
+                                    // with the bar instead of blinking out.
+                                    TrioRenderer.draw(canvas, host, state);
+                                }
                             } else if (TrioOverlay.coveringBar() && isStatusBarHost(host)) {
                                 // Another view on the bar's own row owns the glyph
                                 // window (MIUI inflates more than one battery view
@@ -1383,6 +1407,212 @@ final class TrioHooks {
                 });
     }
 
+    /**
+     * The one hooker both expansion entry points share: the panel's injector
+     * step and the controller's own setter. Whichever one a given drag path
+     * takes, the window hears about it on the same frame.
+     */
+    private static final XposedInterface.Hooker SHADE_HOOKER = new XposedInterface.Hooker() {
+        @Override
+        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+            final Object result = chain.proceed();
+            final Object height = chain.getArg(0);
+            if (height instanceof Float) {
+                noteShadeInjector(chain.getThisObject());
+                TrioOverlay.onShadeHeight((Float) height);
+            }
+            return result;
+        }
+    };
+
+    /**
+     * Learns when the shade is being pulled down, so the glyph window can leave
+     * the screen on the first frame of the drag instead of after the animation.
+     *
+     * <p>Two entry points are hooked because MIUI's drag path does not go
+     * through the controller's setter: the touch handler calls the injector's
+     * {@code setExpandedHeightInternal} directly, while the animation and the
+     * programmatic paths go through {@code setExpandedHeight}. The height is
+     * zero while the panel is closed, so a value above zero is the earliest
+     * honest signal that the bar is no longer standing still.
+     */
+    private static int hookShadeExpansion(XposedModule module, ClassLoader cl) {
+        int n = 0;
+        final Class<?> injector = Refl.cls(
+                "com.android.systemui.shade.NotificationPanelViewControllerInjector", cl);
+        if (injector != null) {
+            n += hook(module, Refl.method(injector, "setExpandedHeightInternal", float.class),
+                    "hyperduo-shade-internal", SHADE_HOOKER);
+        }
+        final Class<?> panel = Refl.cls(
+                "com.android.systemui.shade.NotificationPanelViewController", cl);
+        if (panel != null) {
+            n += hook(module, Refl.method(panel, "setExpandedHeight", float.class),
+                    "hyperduo-shade-height", SHADE_HOOKER);
+        }
+        if (n == 0) {
+            log(module, "shade expansion hooks missing");
+        }
+        return n;
+    }
+
+    /**
+     * Hears the launcher's overview (recents) gesture. The launcher drives it
+     * over ISystemUiProxy and SystemUI's own proxy class answers on the binder
+     * thread; the method it ends in is the one signal that exists on this
+     * build, so it is used as a pulse: every report pushes the bar's return a
+     * little further out, and the last one lets it come back.
+     */
+    private static int hookOverviewGesture(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls(
+                "com.android.systemui.recents.LauncherProxyService", cl);
+        if (proxy == null) {
+            log(module, "LauncherProxyService missing");
+            return 0;
+        }
+        final Method done = Refl.method(proxy, "notifyAssistantGestureCompletion",
+                float.class);
+        if (done == null) {
+            log(module, "notifyAssistantGestureCompletion missing");
+            return 0;
+        }
+        return hook(module, done, "hyperduo-overview", new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                final Object result = chain.proceed();
+                TrioOverlay.onOverviewPulse();
+                return result;
+            }
+        });
+    }
+
+    /**
+     * The panel behind the expansion callback, remembered so its height can be
+     * read later: a flag set by a callback needs a way to be cleared when the
+     * callback that would clear it never comes.
+     */
+    private static volatile Object sPanel;
+    private static Field sPanelHeight;
+
+    static void noteShadeInjector(Object injector) {
+        if (injector == null || sPanel != null) {
+            return;
+        }
+        try {
+            final Method get = Refl.method(injector.getClass(), "getPanelViewController");
+            final Object panel = (get == null) ? null : get.invoke(injector);
+            if (panel == null) {
+                return;
+            }
+            sPanelHeight = Refl.field(panel.getClass(), "mExpandedHeight");
+            if (sPanelHeight != null) {
+                sPanel = panel;
+            }
+        } catch (Throwable t) {
+            log(sModule, "shade panel unavailable: " + t);
+        }
+    }
+
+    /**
+     * Hears the overview gesture where the launcher actually sends it.
+     *
+     * <p>The gesture arrives as a binder transaction on SystemUI's own overview
+     * proxy, and transaction 4 is the progress report the launcher sends while
+     * the finger is moving. The methods behind it are not always present on a
+     * given build, but the transaction number is the interface itself, so this
+     * is the signal that exists everywhere. Only the transaction number is read
+     * - the parcel is left untouched for the code that has to parse it.
+     */
+    private static int hookOverviewProxy(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls("com.android.systemui.recents.MiuiOverviewProxy", cl);
+        if (proxy == null) {
+            log(module, "MiuiOverviewProxy missing");
+            return 0;
+        }
+        return hook(module, Refl.method(proxy, "onTransact", int.class,
+                        android.os.Parcel.class, android.os.Parcel.class, int.class),
+                "hyperduo-overview-proxy", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object code = chain.getArg(0);
+                        final Object result = chain.proceed();
+                        if (code instanceof Integer && (Integer) code == 4) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /**
+     * Hears the overview gesture on the proxy the launcher really talks to.
+     *
+     * <p>The gesture does not go through SystemUI's own overview proxy: the
+     * launcher reports its progress over ISystemUiProxy, whose implementation
+     * answers on the binder thread and reads the float out of the parcel in
+     * transaction 13. Only the transaction number is read here - the parcel is
+     * left untouched for the code that has to parse it - which is what makes
+     * this hook safe to sit on a call that runs for every frame of a drag.
+     */
+    private static int hookOverviewProgress(XposedModule module, ClassLoader cl) {
+        final Class<?> proxy = Refl.cls(
+                "com.android.systemui.recents.LauncherProxyService$1", cl);
+        if (proxy == null) {
+            log(module, "LauncherProxyService$1 missing");
+            return 0;
+        }
+        return hook(module, Refl.method(proxy, "onTransact", int.class,
+                        android.os.Parcel.class, android.os.Parcel.class, int.class),
+                "hyperduo-overview-transact", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object code = chain.getArg(0);
+                        final Object result = chain.proceed();
+                        if (code instanceof Integer && (Integer) code == 13) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /**
+     * Hears the moment an app takes the screen.
+     *
+     * <p>The status bar window controller is told when the bar is running an
+     * app's launch animation - the first thing that happens when a full-screen
+     * app like the camera comes forward, and well before the bar's own row
+     * fades out. Taking the window down on that report is what keeps the glyph
+     * from being the last thing on a bar that is on its way out.
+     */
+    private static int hookLaunchAnimation(XposedModule module, ClassLoader cl) {
+        final Class<?> controller = Refl.cls(
+                "com.android.systemui.statusbar.window.StatusBarWindowControllerImpl", cl);
+        final Class<?> state = Refl.cls(
+                "com.android.systemui.statusbar.window.StatusBarWindowControllerImpl$State", cl);
+        if (controller == null || state == null) {
+            log(module, "status bar window controller missing");
+            return 0;
+        }
+        final Field launching = Refl.field(state, "mIsLaunchAnimationRunning");
+        if (launching == null) {
+            log(module, "mIsLaunchAnimationRunning missing");
+            return 0;
+        }
+        return hook(module, Refl.method(controller, "apply", state),
+                "hyperduo-launch-animation", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object value = launching.get(chain.getArg(0));
+                        if (value instanceof Boolean && (Boolean) value) {
+                            TrioOverlay.onOverviewPulse();
+                        }
+                        return result;
+                    }
+                });
+    }
+
     // ------------------------------------------------------------- registrations
 
     /**
@@ -1431,6 +1661,30 @@ final class TrioHooks {
      * Runs inside {@code onLayout}, after the container has finished positioning
      * children.
      */
+    /** Last container reported as skipped, so the same one is not logged twice. */
+    private static volatile String sLastSkipped;
+
+    /**
+     * Records a container whose icons are left alone.
+     *
+     * <p>Hiding is limited to containers that own a live host, and a container
+     * that is skipped keeps drawing its own signal icons. On the lock screen
+     * that is what puts the native signal icons next to the glyph, so the chain
+     * is written down: it says which container it was and where it sits.
+     */
+    private static void noteSkipped(View container) {
+        final StringBuilder chain = new StringBuilder(container.getClass().getSimpleName());
+        for (ViewParent p = container.getParent(); p != null && chain.length() < 200;
+             p = (p instanceof View) ? ((View) p).getParent() : null) {
+            chain.append('<').append(p.getClass().getSimpleName());
+        }
+        final String note = "skip container: " + chain;
+        if (!note.equals(sLastSkipped)) {
+            sLastSkipped = note;
+            log(sModule, note);
+        }
+    }
+
     private static void settle(ViewGroup container) {
         if (!TrioConfig.get().enabled) {
             return;
@@ -1440,6 +1694,7 @@ final class TrioHooks {
         final boolean owned = isOwned(container);
         diagnose(container, owned);
         if (!owned) {
+            noteSkipped(container);
             return;
         }
         // Refresh-only: this runs inside onLayout, so it may reposition the
@@ -2098,6 +2353,55 @@ final class TrioHooks {
         return null;
     }
 
+    /**
+     * Asks every known host to draw again.
+     *
+     * <p>Not the full {@link #invalidateHosts()}: that one also asks the bar to
+     * lay out again, which is right after a real change and far too much twice
+     * a second. This only repaints the hosts, and it is what turns "the bar is
+     * drawing" into a question that can be asked at all.
+     */
+    static void nudgeHosts() {
+        synchronized (HOSTS) {
+            for (int i = 0; i < HOSTS.size(); i++) {
+                HOSTS.get(i).host.invalidate();
+            }
+        }
+    }
+
+    /** True while the bar's window is known to be covered by an app. */
+    private static volatile boolean sBarCovered;
+
+    /**
+     * Where the watcher leaves its answer: 1 while the bar is covered, 0 while
+     * it is not.
+     *
+     * <p>The watcher is a root script (service.d) because nothing inside
+     * SystemUI can answer the question: a covered window still reports itself
+     * visible and opaque, the module is not allowed to read the task list, and
+     * the window manager - which does know - will not say without root. The
+     * script watches app launches, asks it there, and leaves the answer in a
+     * system property, which needs no file permissions to read. The script
+     * itself is not shipped with the module and lives in the author's device
+     * setup; without it this property simply stays "0" and the insets/visible-
+     * rect tests in {@link TrioOverlay} carry the full-screen detection alone.
+     */
+    private static final String COVER_PROPERTY = "hyperduo.covered";
+
+    /** Reads the watcher's answer; the last known one when there is no watcher. */
+    static boolean barCovered() {
+        try {
+            final Class<?> properties = Class.forName("android.os.SystemProperties");
+            final Object value = properties
+                    .getMethod("get", String.class, String.class)
+                    .invoke(null, COVER_PROPERTY, "0");
+            sBarCovered = "1".equals(value);
+        } catch (Throwable ignored) {
+            // No watcher, or a platform that will not answer: keep the last word.
+        }
+        return sBarCovered;
+    }
+
     /** The status bar's icon container, or null before the capture hook has run. */
     static Object statusIconContainer() {
         return sStatusIconContainer;
@@ -2122,7 +2426,21 @@ final class TrioHooks {
     }
 
     /** Repaints every trio host. Signal updates arrive off the UI thread. */
-    private static void invalidateHosts() {
+    static void invalidateHosts() {
+        // The bar itself is asked to lay out again as well: the host that owns
+        // the glyph window can have left the tree since the last pass, and a
+        // host that never draws again would never take the window over - the
+        // row would stay blank with the window gone.
+        final View bar = sStatusBarView;
+        if (bar != null) {
+            bar.post(new Runnable() {
+                @Override
+                public void run() {
+                    bar.requestLayout();
+                    bar.invalidate();
+                }
+            });
+        }
         final List<TrioState> copy;
         synchronized (HOSTS) {
             if (HOSTS.isEmpty()) {
@@ -2390,10 +2708,7 @@ final class TrioHooks {
         if (label.getVisibility() != View.VISIBLE
                 || !text.contentEquals(label.getText())
                 || label.suffixScale != TrioConfig.appearance().typeSuffixScale
-                // The stored setting is a dp; the label's text size is the px it
-                // resolves to, so compare through the same conversion the posted
-                // path applies rather than raw against raw.
-                || label.getTextSize() != outTypeSizePx(container)) {
+                || label.getTextSize() != TrioConfig.get().outTypeSize) {
             requestOutTypeSync(container);
             return;
         }
@@ -2602,16 +2917,12 @@ final class TrioHooks {
         }
         // Its own setting, not the in-ring type_size: that one is authored for
         // the ring canvas' 120x120 design space and comes out far too small
-        // once the label stands in the status bar's real pixel space. The
-        // setting is a dp (the retired key was raw pixels, which made one slider
-        // value a different physical size on every density), so the pixels it
-        // resolves to follow the display here.
-        final float size = outTypeSizePx(container);
+        // once the label stands in the status bar's real pixel space.
+        final float size = a.outTypeSize;
         if (label.getTextSize() != size) {
             // PX, not the SP that the one-argument overload would use: the
-            // status bar lays out in raw pixels, and the dp has already been
-            // resolved by hand rather than being scaled by the user's
-            // font-size setting.
+            // status bar lays out in raw pixels, so the value is applied as-is
+            // rather than scaled by the user's font-size setting.
             label.setTextSize(TypedValue.COMPLEX_UNIT_PX, size);
         }
         final Typeface typeface = TrioRenderer.typefaceFor(a.typeWeight);
@@ -2818,21 +3129,6 @@ final class TrioHooks {
     private static int outSignalMargin(View container) {
         final float density = container.getResources().getDisplayMetrics().density;
         return Math.round(TrioConfig.appearance().outSignalMargin * density);
-    }
-
-    /**
-     * The out-of-ring label's font size in pixels, after the dp setting.
-     *
-     * <p>Both the posted update and the layout-pass change check go through
-     * here, so a slider move and a re-measure can never disagree about the
-     * target - the same pattern {@link #outSignalHeight} uses for the reading.
-     * The px that one slider value lands on now follows the display, which is
-     * the whole point of the dp key: the retired raw-pixel key made the same
-     * value a different physical size on every density.
-     */
-    private static float outTypeSizePx(View container) {
-        final float density = container.getResources().getDisplayMetrics().density;
-        return TrioConfig.appearance().outTypeSize * density;
     }
 
     /**

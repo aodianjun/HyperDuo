@@ -63,7 +63,165 @@ final class TrioOverlay {
     /** {@code TYPE_APPLICATION_OVERLAY}: the fallback when the hidden type is absent. */
     private static final int TYPE_FALLBACK = 2038;
 
-    /** One overlay per glyph host: the status bar's battery view gets exactly one. */
+    /** True once the half-second re-check has been posted. */
+    private static volatile boolean sTicking;
+
+    /**
+     * Re-asks whether the window belongs on screen twice a second.
+     *
+     * <p>Every other path into that decision runs inside the host's draw pass,
+     * and a bar that is standing still does not draw - so a state that changes
+     * without the bar repainting (an app going full screen, the bar coming
+     * back) would otherwise be noticed only when something else forced a pass.
+     */
+    private static final Runnable TICK = new Runnable() {
+        @Override
+        public void run() {
+            // A window that is completely covered is not drawn, so a bar that
+            // answers this nudge is a bar that is really on screen.
+            TrioHooks.nudgeHosts();
+            for (TrioOverlay overlay : LIVE.values()) {
+                try {
+                    overlay.sync();
+                } catch (Throwable ignored) {
+                    // A host that went away mid-pass is not this task's problem.
+                }
+            }
+            BUSY_HANDLER.postDelayed(this, 500L);
+        }
+    };
+
+    /** Scratch rectangle for the visible-rect test; UI thread only. */
+    private static final android.graphics.Rect VISIBLE_RECT =
+            new android.graphics.Rect();
+
+    /** Last sync trace logged, so the same one is not written twice. */
+    private static volatile String sLastSyncNote;
+
+    /** True while the bar is not standing still. */
+    private static volatile boolean sShadeBusy;
+
+    /** Every signal that sets the flag arrives on the UI thread. */
+    private static final android.os.Handler BUSY_HANDLER =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+
+    /**
+     * Lets the bar draw again once nothing has moved for a moment. Both signals
+     * are pulses rather than states: the panel reports its height on the frames
+     * it changes and the launcher reports its gesture while it runs, so a hold
+     * that is refreshed by every report and expires on its own is the one shape
+     * that cannot get stuck when the closing report never comes.
+     */
+    private static final Runnable CLEAR_BUSY = new Runnable() {
+        @Override
+        public void run() {
+            setBusy(false, "settled");
+        }
+    };
+
+    /** How long the bar stays stood down after the last report. */
+    private static final long HOLD_MS = 800L;
+
+    private static void pulse(String why) {
+        setBusy(true, why);
+        BUSY_HANDLER.removeCallbacks(CLEAR_BUSY);
+        BUSY_HANDLER.postDelayed(CLEAR_BUSY, HOLD_MS);
+    }
+
+    /**
+     * Called from the panel's own expansion step, on every frame of a drag and
+     * of the fling after it. Anything above zero means the shade is moving, so
+     * the window leaves on the first frame instead of after the animation.
+     */
+    static void onShadeHeight(float height) {
+        if (height > 0.5f) {
+            pulse("shade height=" + height);
+        } else {
+            setBusy(false, "shade closed");
+        }
+    }
+
+    /**
+     * Called while the launcher reports an overview (recents) gesture or the
+     * animation that follows it. Recents scales what it covers, and a window of
+     * its own cannot follow that, so for the duration the glyph goes back to
+     * being painted by the bar itself.
+     */
+    static void onOverviewPulse() {
+        pulse("overview");
+    }
+
+    private static void setBusy(boolean busy, String why) {
+        if (busy == sShadeBusy) {
+            return;
+        }
+        sShadeBusy = busy;
+        TrioHooks.log(TrioHooks.LOG_INFO, "busy=" + busy + " (" + why
+                + ") windows=" + LIVE.size());
+        if (busy) {
+            BUSY_HANDLER.removeCallbacks(CLEAR_BUSY);
+            for (TrioOverlay overlay : LIVE.values()) {
+                overlay.hideNow();
+            }
+        } else {
+            for (TrioOverlay overlay : LIVE.values()) {
+                overlay.showAgain();
+            }
+        }
+        // Either way the row has to draw again: with the window gone it paints
+        // the glyph itself, and with the window back it steps aside for it.
+        TrioHooks.invalidateHosts();
+    }
+
+    /**
+     * Takes the glyph off the screen now, without waiting for the host to draw
+     * again.
+     *
+     * <p>The window itself stays up and stays visible to the window manager: it
+     * is the glyph inside it that is made transparent. Hiding the window's only
+     * view would make the window itself report as not visible, and putting it
+     * back would then have to wait for a draw pass that a bar standing still
+     * never performs - the state the glyph exists for.
+     */
+    void hideNow() {
+        shown = false;
+        glyph.setAlpha(0f);
+    }
+
+    /**
+     * Puts the window back without waiting for the host to draw again.
+     *
+     * <p>A bar that is standing still does not draw, so waiting for its next
+     * draw pass to bring the window back would leave it hidden for as long as
+     * nothing changed on screen - which is exactly the state the glyph is for.
+     * The window is where the last sync left it and the host has not moved, so
+     * it can be shown again here; the same visibility rules are re-checked so a
+     * bar that is off screen or covered keeps it hidden.
+     */
+    void showAgain() {
+        if (shown) {
+            return;
+        }
+        // The window's own visibility is not asked about here: the window being
+        // hidden is the very thing this call is undoing, and its visibility
+        // follows the views inside it. Only the view's own state is read.
+        final boolean hostVisible = host.isShown() && effectiveAlpha(host) > 0f;
+        host.getLocationOnScreen(location);
+        final DisplayMetrics metrics = host.getResources().getDisplayMetrics();
+        final boolean onScreen = location[0] + host.getWidth() > 0
+                && location[0] < metrics.widthPixels
+                && location[1] + host.getHeight() > 0
+                && location[1] < metrics.heightPixels;
+        TrioHooks.log(TrioHooks.LOG_INFO, "showAgain: host=" + hostVisible
+                + " onScreen=" + onScreen + " size=" + host.getWidth() + "x"
+                + host.getHeight() + " at " + location[0] + "," + location[1]);
+        if (!hostVisible || !onScreen) {
+            return;
+        }
+        shown = true;
+        glyph.setAlpha(1f);
+    }
+
     private static final WeakHashMap<View, TrioOverlay> LIVE =
             new WeakHashMap<View, TrioOverlay>();
 
@@ -176,10 +334,19 @@ final class TrioOverlay {
         }
         final View owner = sOwner;
         if (owner != null && owner != host) {
-            // One window per bar: MIUI inflates more than one battery view into the
-            // same row, and two windows in the same spot draw the glyph twice.
-            release(host);
-            return null;
+            if (owner.isAttachedToWindow() && owner.isShown()) {
+                // One window per bar: MIUI inflates more than one battery view
+                // into the same row, and two windows in the same spot draw the
+                // glyph twice.
+                release(host);
+                return null;
+            }
+            // The owner has left the tree - MIUI rebuilds the bar's row on its
+            // own schedule - and the window went with it. Holding the slot for a
+            // view that is gone is what left the glyph missing for good: no host
+            // could ever take the window over, so every one of them fell back to
+            // drawing into a row that had been told to stay blank.
+            release(owner);
         }
         sOwner = host;
         TrioOverlay overlay = LIVE.get(host);
@@ -218,7 +385,27 @@ final class TrioOverlay {
         }
     }
 
-    /** {@code Host<Parent<...}}, truncated: the log line is a diagnosis, not a dump. */
+    /**
+     * The alpha a view really shows at: its own, times every ancestor's.
+     *
+     * <p>MIUI fades the bar out for a full-screen app by fading the row's
+     * container, not the battery view inside it, so asking the host alone is
+     * asking the wrong view - it still reports itself fully opaque while
+     * nothing of it is on screen.
+     */
+    private static float effectiveAlpha(View view) {
+        float alpha = 1f;
+        for (View current = view; current != null; ) {
+            alpha *= current.getAlpha();
+            if (alpha <= 0f) {
+                return 0f;
+            }
+            final ViewParent parent = current.getParent();
+            current = (parent instanceof View) ? (View) parent : null;
+        }
+        return alpha;
+    }
+
     /** The alpha of the window a view lives in - not the view's own. */
     private static float windowAlpha(View view) {
         if (view == null) {
@@ -242,12 +429,21 @@ final class TrioOverlay {
         }
         try {
             final WindowInsets insets = view.getRootWindowInsets();
-            return insets == null || insets.isVisible(WindowInsets.Type.statusBars());
+            if (insets == null) {
+                return true;
+            }
+            // Two questions, because a full-screen app answers them differently
+            // on different builds: the bar can still be reported visible while
+            // taking no room at all, which is exactly the state the window must
+            // not open in.
+            return insets.isVisible(WindowInsets.Type.statusBars())
+                    && insets.getInsets(WindowInsets.Type.statusBars()).top > 0;
         } catch (Throwable t) {
             return true;
         }
     }
 
+    /** {@code Host<Parent<...>}, truncated: the log line is a diagnosis, not a dump. */
     private static String chainOf(View host) {
         if (host == null) {
             return "-";
@@ -292,11 +488,6 @@ final class TrioOverlay {
         sLastDrawHost = host;
     }
 
-    /** True while some host owns the glyph window. */
-    static boolean windowOwned() {
-        return sOwner != null;
-    }
-
     /**
      * True while the window is open *and* showing the glyph.
      *
@@ -312,7 +503,12 @@ final class TrioOverlay {
             return false;
         }
         final TrioOverlay overlay = LIVE.get(owner);
-        return overlay != null && overlay.attached && overlay.shown;
+        return overlay != null && overlay.covering();
+    }
+
+    /** True while this window is open and painting the glyph. */
+    boolean covering() {
+        return attached && shown;
     }
 
     /** Drops the window for a host that is going away. Safe to call repeatedly. */
@@ -332,9 +528,13 @@ final class TrioOverlay {
      * schedule layout on the host.
      */
     void sync() {
+        if (!sTicking) {
+            sTicking = true;
+            BUSY_HANDLER.postDelayed(TICK, 500L);
+        }
         final boolean hostVisible = host.isShown()
                 && host.getWindowVisibility() == View.VISIBLE
-                && host.getAlpha() > 0f;
+                && effectiveAlpha(host) > 0f;
         // The bar is what is on screen, not this view: MIUI fades the bar's
         // contents during a shade pull, hides them outright when the shade is
         // open or a full-screen app takes the screen, and the window has to go
@@ -343,7 +543,7 @@ final class TrioOverlay {
         final View bar = TrioHooks.statusBarView();
         final boolean barVisible = bar == null
                 || (bar.isShown() && bar.getWindowVisibility() == View.VISIBLE
-                    && bar.getAlpha() > 0f);
+                    && effectiveAlpha(bar) > 0f);
         // A bar that hides by sliding off the screen leaves every view reporting
         // itself as shown - the window is still visible, the views are still
         // attached - so the host's rectangle on screen is part of the test. That
@@ -366,14 +566,45 @@ final class TrioOverlay {
         final boolean drewRecently = host == sLastDrawHost
                 && SystemClock.uptimeMillis() - sLastDraw < DRAW_GRACE_MS;
         final boolean insetsAgree = insetsShowBar(host);
+        // The one test that sees a full-screen app: a window that is completely
+        // covered reports no visible rectangle, and the status bar's window is
+        // exactly that while an app like the camera owns the screen. The insets
+        // cannot see it - they describe the bar as the bar sees itself.
+        final boolean unclipped = host.getGlobalVisibleRect(VISIBLE_RECT);
         // Drawing wins over what the insets claim: a bar that is painting itself is
         // on screen by definition, and a full-screen app's hidden bar stops painting
         // long before anything else notices.
+        // The insets have the last word: a full-screen app takes the bar away
+        // without any view in it changing, and the bar's own row keeps drawing
+        // through the transition, so drawing alone cannot be read as "on
+        // screen". Nothing is lost when the insets say no - the row paints the
+        // glyph itself in that case.
         final boolean visible = hostVisible && barVisible && windowsOpaque && onScreen
-                && (drewRecently || insetsAgree);
+                && insetsAgree && unclipped && !sShadeBusy
+                && !TrioHooks.barCovered()
+                && !TrioHooks.islandHideBattery();
+        if (host == sOwner) {
+            final String trace = "sync: hShown=" + host.isShown()
+                    + " hWin=" + host.getWindowVisibility()
+                    + " hA=" + effectiveAlpha(host)
+                    + " bShown=" + (bar != null && bar.isShown())
+                    + " bWin=" + (bar == null ? -9 : bar.getWindowVisibility())
+                    + " bA=" + (bar == null ? -9f : effectiveAlpha(bar))
+                    + " bWinA=" + windowAlpha(bar)
+                    + " onScreen=" + onScreen
+                    + " insets=" + insetsAgree + " unclipped=" + unclipped
+                    + " busy=" + sShadeBusy
+                    + " island=" + TrioHooks.islandHideBattery()
+                    + " -> " + visible;
+            if (!trace.equals(sLastSyncNote)) {
+                sLastSyncNote = trace;
+                TrioHooks.log(TrioHooks.LOG_INFO, trace);
+            }
+        }
         if (visible != shown) {
             shown = visible;
-            glyph.setVisibility(visible ? View.VISIBLE : View.INVISIBLE);
+            // Alpha, not visibility: see hideNow().
+            glyph.setAlpha(visible ? 1f : 0f);
         }
         if (!visible) {
             return;
@@ -454,8 +685,11 @@ final class TrioOverlay {
 
     /**
      * {@code TYPE_STATUS_BAR_ADDITIONAL} is a hidden constant, so it is read
-     * reflectively and cached. The fallback is the public overlay type, which
-     * needs no windowing permission the system UI does not already hold.
+     * reflectively and cached. The bar's own type cannot be used: the platform
+     * allows only one window of it, and the bar already owns it.
+     *
+     * <p>The fallback is the public overlay type, which needs no windowing
+     * permission the system UI does not already hold.
      */
     private static int windowType() {
         if (sWindowType == 0) {
