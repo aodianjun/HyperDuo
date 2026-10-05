@@ -573,18 +573,28 @@ Wi-Fi 搬进缺口仍是 canvas 变换（`translate` + `scale`）完成的，几
 文本/字号需要变时**只排队一次 posted sync**（`setText`/`setTextSize` 会 re-measure → 调度布局，
 同样不能在 `onLayout` 内做），否则只更新颜色与位置。
 
-字号用 `setTextSize(TypedValue.COMPLEX_UNIT_PX, a.outTypeSize)`：**必须显式
-`COMPLEX_UNIT_PX`**，单参 `setTextSize(float)` 默认按 SP 解释，而这里存的是裸 px。**环外字号
-不再乘 `inkScale`**：它是一个独立键 `out_type_size`（默认 32，与 `type_size` 同值，
-见 `Prefs.KEY_OUT_TYPE_SIZE`），含义是「宿主 20dp 图标盒子里的像素」，乘上画布缩放反而会
-把两种排布的字号绑在一起。字重取 `a.typeWeight`（`TrioRenderer.typefaceFor`），与环内共用。
+字号用 `setTextSize(TypedValue.COMPLEX_UNIT_PX, outTypeSizePx(container))`：**必须显式
+`COMPLEX_UNIT_PX`**，单参 `setTextSize(float)` 默认按 SP 解释，而这里传的已经是换算好的 px。
+**环外字号不再乘 `inkScale`**：它是一个独立键 `out_type_size_dp`（默认 11dp，见
+`Prefs.KEY_OUT_TYPE_SIZE_DP`），含义是「宿主 20dp 图标盒子里的大小」，乘上画布缩放反而会
+把两种排布的字号绑在一起；dp→px 的换算走 `outTypeSizePx`（posted 更新与 layout-pass 的变更
+比较都过它，滑杆改值与重测不可能各执一词，与 `outSignalHeight` 同一模式）。
+字重取 `a.typeWeight`（`TrioRenderer.typefaceFor`），与环内共用。
 宿主尚未测量（`inkScale <= 0`）时跳过挂载，下一次 posted sync 自愈。文本为空时置 `GONE`
 而非移除 —— 网络类型随 modem 来去，每次布局 add/remove 太吵。
 
-`type_size` 只作用环内，`out_type_size` 只作用环外，二者**不再共用**；`type_weight` 是两者
+`type_size` 只作用环内，`out_type_size_dp` 只作用环外，二者**不再共用**；`type_weight` 是两者
 共用的。设置页的门禁因此是 `a.typeInRing` / `a.typeOutOfRing` / `a.typeAnywhere()`，不再是
-裸的 `mobileTypeMode == X` 比较。`show_mobile_type` 是废弃的旧布尔键，仅用于迁移读取
-（见配置项参考）。
+裸的 `mobileTypeMode == X` 比较。`show_mobile_type` 是废弃的旧布尔键，`out_type_size` 是
+废弃的旧像素键，均仅用于迁移读取（见配置项参考）。
+
+**`out_type_size` → `out_type_size_dp`（第十二轮）**：旧键存的是**裸像素**，同一个滑杆值在
+不同密度设备上物理大小不同——这正是第十轮把 `out_signal_size` 从百分比改成 dp 时修掉的同一个
+缺陷，环外字号漏掉了。新键默认 11dp（= 32px ÷ 3，老默认在编写它的 density-3 设备上的物理
+大小），范围 6–22dp（覆盖旧范围 16–64px 在同设备上的物理跨度 5.3–21.3dp）。迁移走
+`readMobileTypeMode` 的既有模式：新键在则用新键；仅旧键在则 `Math.round(px ÷ density)` 一次
+并 clamp 进新范围；都没有则取新默认。旧键从此不再写入。九项离线断言
+（`.tmp/migtest/MigTest`，不含库）逐项覆盖了这几条路径。
 
 **结尾 A 的缩小（`type_suffix_scale`）**：参考图 `docs/ref-5ga.png` 量出 A 高 / 主字高 ≈
 56/86 ≈ 0.65，底边与主字底边近似齐平（差 2px），所以默认 65。这个比例是**标签本身的属性**，
@@ -608,17 +618,44 @@ Wi-Fi 搬进缺口仍是 canvas 变换（`translate` + `scale`）完成的，几
 把两条缝合成为**一个** strip 数字的地方（见其注释），同样按 RTL 取「朝锚点」的那条缝；只有标签
 独占时才会把外侧那条缝也算进去。
 
-**环外读数的位置偏移（`out_signal_offset_x_dp` / `_y_dp`）**：走**布局层**（在
-`placeOutTypeLabel` 的 clamp 之后把像素偏移加到 `left`/`top`），不走 `drawOutSignal` 改
-`x0`/`baseline`。两个理由：视图的测量尺寸/占位不变（偏移后不会被裁、也不会和邻居重叠），且标签
-锚在读数已偏移的 `left` 上会**自动跟着走**，两者不会脱节。`placeOutTypeLabel` 里已有的
-`setTranslationX(-islandShiftPx)` 是超级岛专用，偏移加在 `layout()` 的坐标上而非 translation，
-两者不打架。水平偏移默认 0，所以 `placeOutTypeLabel` 的三参重载保留给标签自己用（标签不带偏移，
-由读数带动）。
+**环外读数与电池的间距（`out_signal_margin_dp`）**：和标签边距一样是**会占位**的边距，不是位置。
+`reserveOutRingStrip` 把它（连同读数宽度）从原生图标行里让出来，`placeOutTypeLabel` 用它把读数
+摆在电池左侧。**这里踩过一次坑**：1.6 最初把它做成 `out_signal_offset_x_dp` / `_y_dp` 两个自由
+**位移**，加在 clamp 之后——位移不参与 strip 计算，所以调大后读数滑出为自己预留的空间，直接画在
+旁边图标上层（用户报告「不占位了，会悬浮在其他图标上方」）。结论：**这条线上的任何调节都必须是
+边距**，因为 strip 是唯一能让原生图标跟着让位的机制；自由位移没有对应的让位动作。
+**垂直方向不再提供调节**：状态栏那一行没有可预留的纵向空间，任何纵向位移只能是「压到别的东西
+上」，所以读数一律在自己那一行里垂直居中。
 
-已知风险：原生 `mobile_type_single` 是 mobile 槽组的子级，而 `foldedSlots()` 不包含
-`mobile_type`，所以「关闭显示移动信号点 + 环外」时可能同时看到原生与自建两个标签。环内模式不会
-冲突 —— 它一定伴随 mobile 槽折叠。
+**读数的验证**：`work/outringcheck` 的 `SuffixShot` 是后缀缩放的量测脚本——它把
+`"5GA"` 按若干比例渲染进环心、用列游程量高度比，默认 65 应落在 0.65 附近、比例 100 应与旧版
+单字号完全一致。间距本身没有独立工装：它是 `reserveOutRingStrip` 的一个加数，与标签边距走同一
+条断言路径。
+
+**原生类型文字的压制（1.6.3，取代已关闭的「已知风险」）**：原生类型文字有两个宿主视图——经典的
+`mobile_type`（ImageView + `MobileTypeDrawable`，在 `mobile_signal_container` 内）与 HyperOS 的
+`mobile_type_single`（TextView，在 `mobile_group` 内），两者都在 slot=`mobile` 的
+`ModernStatusBarMobileView` **内部**。折叠整个 mobile 槽本应带走它们，但 MIUI 的 binder
+（`MiuiMobileIconBinder`）独立 collect 一个 `mobileTypeSingleVisible` flow，经
+`MobileSignalAnimatorContainer.setChildVisible(view, true)` **直接把孩子置 VISIBLE 并播出现动画**；
+disappear 路径还会 clone 出副本 `addTransientView` 到容器根，画在 GONE 祖先之外。再叠加
+`MiuiStatusIconContainer.onLayout` 第一趟把每个孩子停在容器左端（状态栏即屏幕中线），就是用户截图里
+「游离在状态栏中部的 4G」。
+
+两层修复，互补：
+
+1. **源头**：hook `MobileSignalAnimatorContainer.setChildVisible`（hook 组 8）。环外模式下，凡是
+   「显示类型」的调用（`visible=true` 且目标视图 id 的资源名是 `mobile_type` / `mobile_type_single`，
+   经 `isNativeTypeView` 逐 id 记忆化）把布尔**翻转成 false** 再 proceed——出现动画根本不启动，
+   连一帧的闪现都没有；volte / vowifi / roaming 的调用原样放行。环内或关闭时不干预。
+2. **兜底**：`settle()` 末尾对 owned 容器 `findViewById` 这两个 id，把 VISIBLE 的强制 GONE
+   （`suppressNativeTypeViews`，走与槽位相同的 `markCollapsed` 一次性记账）。它同时承担**交还**：
+   模式切离环外（或总开关关闭，`restoreNative` 末尾也调它）时按记账把 GONE 的孩子还原成 VISIBLE，
+   MIUI 的 flow 下一次 emit 自然重新接管。
+
+已知风险一节就此关闭：环外模式下原生与自建标签不再同屏。设备离线期间此修复无法上机确认，恢复后
+需验证三点：环外时中部无游离 4G/5G；切回环内/关闭后原生类型文字回到信号图标旁；volte/vowifi 等
+兄弟图标不受影响。
 
 ### 配色
 
@@ -649,13 +686,20 @@ sRGB 亮度判断，三组角色色各有深/浅两套。前景 tint 自身仍�
 **环外类型** / **环外信号**。后两格是例外：环外标签与环外读数都不由渲染器绘制
 （见「网络类型：环内与环外」与「环外信号」），所以走
 `TrioPreviewView.setOutTypeOnly(true)` / `setOutSignalOnly(true)` 自己画。标签那格必须与
-`TrioHooks.updateOutTypeLabel` 同口径——字号取 `outTypeSize`、字重取 `typeWeight`、按 px 而非 sp，
+`TrioHooks.outTypeSizePx` 同口径——字号取 `out_type_size_dp` 乘密度、字重取 `typeWeight`、按 px 而非 sp，
 再把宿主 20dp 图标盒按预览自身的高度等比换算（`HOST_ICON_HEIGHT_DP = 20f`，与 `docs` 里
 `status_bar_icon_height` 一致），结尾 A 的缩放取 `type_suffix_scale`。`out_type_size` 在设置页
 别处**没有任何可见反馈**，这一格就是它的唯一所见即所得参照；口径一旦和钩子侧不一致，预览就
 开始骗人，比没有预览更糟。信号那格同理：按 `out_signal_size_dp × density` 与参照纵横比定出
-读数尺寸，并把 `out_signal_offset_*_dp` 换算成格内的位移（格宽按「读数 + 两侧满量程偏移」定，
-否则大偏移会把读数推出格子，看起来像没有这一项）。
+读数尺寸，再把 `out_signal_margin_dp` 换算成读数到格子右边缘的距离（右边缘即电池在真实那一行里
+的位置；窗口宽 = 读数 + 滑块能给出的最大间距），所以拉大间距时读数确实向左离开边缘，整个量程都
+留在格内。
+
+**类型边距的可见反馈（第十二轮补）**：两条边距在这格里的画法是「文字块在两条细刻度线**之间**
+居中」——刻度线各距格子边缘一条边距的宽度（按 20dp 图标盒等比），前景色 56/255 的透明度，与底纹
+同级的「结构感」。状态栏里边距的语义就是「原生图标让出来的空隙」，在这格里邻居就是格子边缘，
+所以加宽某一条边距时，刻度线外移、文字块整体被挤向另一侧——所见即所得地展示了「占位」而非
+「位移」。两边相等时文字块恰好在格子正中，与旧版渲染逐像素一致。
 
 `PREVIEW_SIZE = 39.dp` 是为了让八格一行放得下（8×39 + 7×4 = 340dp < 344dp）。第 7 格用了
 `"5GA"` 作为示例类型——正是为了让 `type_suffix_scale` 有可见反馈。
@@ -749,6 +793,14 @@ style 0 时该视图宽高恒为 0 —— 单纯把它设成 `VISIBLE` 也不会
 采样只认权威状态栏容器（`isStatusBarContainer`：等于捕获到的 `mStatusBarStatusIcons`，或祖先
 类名为 `MiuiPhoneStatusBarView`），否则控制中心/QS 头部的容器会污染全局状态。
 
+**在场判定改为两路取「或」（1.6.5，issue #5 的修复）**：单靠 `isIconVisible()` 会在一部分固件上
+失真——小米 17 Ultra / HyperOS 4.0.0.28 beta 上 Wi-Fi 已连接但该方法答 false，弧线被永远关掉
+（用户的两张对照图是决定性证据：关弧时原生图标正常回来 = 折叠没问题；开弧时不画 = 判定假阴性）。
+修复：`isIconVisible()` 答 true **或** `sWifiLevel >= 0`（`transformResId` 只有在系统真的绑定
+Wi-Fi 图标时才会被调到，采到过等级 = 无线至少答过一次）即视为在场。等级不会自行回落，所以它不是
+可靠的「离开」证人——但 Wi-Fi 真正关闭时走的是 C_CLEAR 路径（等级本身被清），两路合用恰好互补。
+方法缺失时的「退化为 mere presence」兜底保留不变。
+
 #### 环外视图的前景色（深浅色跟随）
 
 环外两个自建视图（`OutTypeLabel`、`OutSignalView`）的前景色都取自 `TrioState.foreground()`，
@@ -780,6 +832,16 @@ bug 的信念来源，已改正。
 读数被要求重绘，四条成对断言，外加「错误注释不得复活」与「`outRingInk` 必须是实例字段且
 `foreground()` 仍把 0 折成 `DEFAULT_FOREGROUND`」两条形状断言。**唯一无法离线替代的是真机那一下**
 —— 改深浅色时环外文字是否立刻跟上。
+
+**同拍反色（1.6.4，issue #2 的修复）**：上面的 draw-pass 比较仍是安全网，但它有一个观感缺陷——
+MIUI 的深浅色是**逐帧动画**（`updateLightDarkTint` 每帧被值动画调一次，`onLightDarkTintChanged` 是
+免动画直调），原生图标跟着动画渐变；环外视图却要等字形**下一帧** onDraw 才比较出墨色变了、然后
+一步翻过去——用户看到的就是「别人在过渡，它迟一秒突变」。修法：hook 组 9 拦
+`MiuiBatteryMeterView.updateLightDarkTint`，proceed 后**当场**用本帧参数算出墨色并经
+`applyOutRingInk`（与 post 路径共用的一行上色体）直接给两个视图上色——无 post、无等待，环外视图
+从此与原生图标同速渐变。墨色解析复刻 `TrioState.foreground()` 的三分支（`useTint ? tintColor :
+(intensity > 0 ? darkColor : lightColor)`，0 折白），保证两条路径算出的是**同一个数**；钩子体每帧
+只有几次字段读和一次颜色比较，与 MIUI 自己每帧的付出同级。
 
 ### 双卡信号
 
@@ -939,16 +1001,13 @@ int dataSlot, int[] out)` 是唯一的读数解析处。两卡都有读数 ⇒ `
 **两个视图共用一条 strip**：信号与类型标签都排在电池图标左边，都以
 `reserveOutTypeSpace(container, total)` 往容器左侧撑 padding。它们各自更新时如果都按自己的宽度
 去撑，后更新的那个就会把先更新的挤掉，所以统一走 `reserveOutRingStrip(container)` —— 它读两个
-子视图的 `getMeasuredWidth()` 求和（信号在前、标签在外，间距按 `out_type_margin_left/right_dp`
-取「朝锚点」的那条缝），一次撑到位。定位用
-`placeOutTypeLabel(container, view, anchor, offsetX, offsetY)`，标签的锚点是
+子视图的 `getMeasuredWidth()` 求和，并各配自己那条**朝锚点**的缝：读数是
+`out_signal_margin_dp`，标签是 `out_type_margin_left/right_dp` 里朝向锚点的那条（另有标签独占时
+才算上的外侧那条），一次撑到位。定位用
+`placeOutTypeLabel(container, view, anchor, gap)`，第三参永远是「这个视图与锚点之间的缝」；
+标签自己用三参重载（内部取 `outLabelAnchorGap`），读数用四参传 `outSignalMargin`。标签的锚点是
 `labelAnchorIn(container, meter)`：有信号就贴在信号外侧，否则直接贴电池盒 —— 阅读顺序是
-网络类型 → 信号 → 电池，标签永远在最外。读数的位置偏移（`out_signal_offset_*_dp`）就加在
-`placeOutTypeLabel` 的坐标上，标签因此自动跟随；标签自己用三参重载（偏移为 0）。
-
-**位置偏移的验证**：`work/outringcheck` 的 `SuffixShot` 同时是后缀缩放的量测脚本——它把
-`"5GA"` 按若干比例渲染进环心，用列游程量出末段与主段的高度比，默认 65 应落在 0.65 附近、
-比例 100 应与旧版单字号完全一致。
+网络类型 → 信号 → 电池，标签永远在最外，读数与标签的间距各自独立可调。
 
 **采样时机**：环外堆叠也要分卡读数，所以 `TrioState.refresh()` 的轮询门与
 `hyperduo-signal` 里的 `pollSimsNow` 条件都从裸的 `dualSim` 放宽成
@@ -967,14 +1026,60 @@ int dataSlot, int[] out)` 是唯一的读数解析处。两卡都有读数 ⇒ `
 | `hyperduo-cutout` | `MiuiPhoneStatusBarView.updateCutoutLocation` | 重新追加被 `setIgnoredSlots` 清掉的 slot |
 | `hyperduo-signal` | `MiuiStatusBarIconViewHelper.transformResId` | 读取 Wi-Fi / 移动信号等级并触发重绘 |
 | `hyperduo-mobile-type` | `MobileTypeDrawable.measure` | 读 `mMobileType`（网络类型 3G/4G/5G…）并触发重绘 |
+| `hyperduo-meter-tint` | `MiuiBatteryMeterView.updateLightDarkTint` | 深浅色同拍反色（环外视图跟随动画逐帧上色） |
+| `hyperduo-mobile-type-visible` | `MobileSignalAnimatorContainer.setChildVisible` | 环外时把「显示原生类型」翻转为隐藏 |
+| `hyperduo-island-hide` | `MiuiStatusBatteryContainer.setIsHideBattery` | 追踪充电超级岛隐藏电池，翻转三条接管规则 |
 
-共 9 个 hook。每个 hook 组独立容错：固件重命名某个方法只会让该组打日志跳过，不影响其余。
+共 12 个 hook。每个 hook 组独立容错：固件重命名某个方法只会让该组打日志跳过，不影响其余。
 设置通道不占 hook —— `TrioConfig` 是注册在 remote `SharedPreferences` 上的变更监听器。
 
 `hyperduo-mobile-type` 必须在 `chain.proceed()` **之后**再读字段：`measure()` 会把 `"5G++"`
 就地改写成 `"5G"` 并另置一个 double-plus 标志（`MobileTypeDrawable.java:69`），提前读会拿到
 未规范化的原值。网络类型绝不自行推断 —— `5GA` 是 MIUI 按运营商配置
 （`OperatorConfig.support5GADisplay`）决定的，模块只如实显示系统给的字符串。
+
+### 充电超级岛：电池被隐藏时的接管
+
+充电时 HyperOS 弹出超级岛，`MiuiBatteryControllerImpl` 置 `mIsAddBatteryIsland` →
+`MiuiBatteryMeterView.updateIslandChanged(true)` → `MiuiStatusBatteryContainer.setIsHideBattery(true)`
++ `requestLayout`。容器对 `mBattery` **跳过测量与占位**（图标行的 layout 右边界不再减电池宽度，
+原生图标整体右移让位），但 `mBattery` 视图本身仍 VISIBLE、仍在绘制——这是两条坑的源头：
+
+1. **三合一字形悬空**：字形画在 `mBattery` 里，电池没占位但视图还在画，字形叠在岛的下放空间里。
+2. **环外视图锚点失效**：环外标签/读数锚在电池 meter 的坐标上，电池被跳过后锚点不再可靠。
+
+hook 组 10 拦 `setIsHideBattery`，把值记进 `TrioState.sIslandHideBattery`（全局 volatile：MIUI
+同时隐藏所有容器的电池），值翻转时走一遍与 `applyConfigChange` 同形的反应（refold + 重挂环外两
+视图 + 重绘）。岛在场时三条规则同时生效：
+
+- **字形停画**（`hyperduo-draw` 的门加上 `!islandHideBattery()`）——环内没有可安放的环。
+- **Wi-Fi 槽交还**（`foldedSlots()` 里 `a.wifi && !islandHideBattery()` 才折 wifi）——原生
+  Wi-Fi 图标显示，用户此前从模块里关掉它只是因为弧画在环上，环没了就该回来。
+- **移动信号按环外读数显示**（`foldedSlots()` 无条件折 mobile 槽；`syncOutSignal`/
+  `requestOutSignalSync` 的门放宽为 `stackedOut() || islandHideBattery()`）——环内读不了信号，
+  环外读数顶上，与用户是否开过「环外 + 堆叠」无关。
+
+环外标签（用户开了环外类型时）继续显示：锚链 `labelAnchorIn` 优先取环外读数——岛下读数必在。
+岛收回（`setIsHideBattery(false)`）时同一套反应把三件事还原：字形恢复、Wi-Fi 槽重新折叠（若用户
+开着弧）、环外读数按用户原设置决定去留。
+
+**接管条件的精确边界（1.6.7）**：岛只改变信号**画在哪里**，不改变用户**是否要它**。所以
+`foldedSlots()` 的 mobile 折叠条件**保持 `a.foldsMobile()` 不变**（原来是
+`a.foldsMobile() || islandHideBattery()`，那会在用户关掉移动信号时凭空折掉原生图标），改由
+`outSignalWanted()` 表达真正的规则：`stackedOut() || (islandHideBattery() && foldsMobile())`
+——用户要信号且岛夺走了字形，读数才顶上；用户本就不要信号的机器上，原生图标留在原地。
+
+**横向参考系改到图标行边缘（1.6.7，修 1.6.6 的坐标错误）**：`placeOutTypeLabel` 原先锚
+`meter.getLeft()`。正常态它等于图标行的右界（容器把行右界算作「容器右 − paddingEnd − 电池宽」，
+电池正被布局在那里），所以一直是对的；**岛上这个等价被破坏**——`MiuiStatusBatteryContainer`
+的 `onMeasure` 不再把电池宽度累加进 measuredWidth、`onLayout` 里行右界 `i7` 也不再减电池宽
+（行因此右移让位），但电池视图本身**仍按原位布局、只被 `updateVisibility$6()` 设为
+`INVISIBLE(4)`**（不可见但仍占位，不是 GONE）。于是锚在 meter 上的读数落在比行末**左移一个电池
+宽**处，正好压在被右移过来的原生图标（网速、信号）上——用户截图里的重叠。
+修法：横向基准取 `iconContainerIn(container)` 的 `getRight()`（RTL 取 `getLeft()`），即图标行
+真正的末端，也正是 `reserveOutRingStrip` 预留 padding 收尾的地方，读数因此落在自己预留的条带
+里；`icons` 取不到或未测量时退回原来的 anchor 边。垂直基准仍取 anchor（它的 frame 无条件布局，
+两态一致）。两态下该边缘与 meter 左缘相等或正好差一个电池宽，所以正常外观逐像素不变。
 
 ## 配置项参考
 
@@ -1002,13 +1107,12 @@ int dataSlot, int[] out)` 是唯一的读数解析处。两卡都有读数 ⇒ `
 | `value_size` | `36` | 16 – 44 |
 | `value_weight` | `700` | 100 – 900 |
 | `type_size` | `32` | 16 – 44（只用于环内） |
-| `out_type_size` | `32` | 16 – 64（只用于环外；上界高于 `type_size`，见 `Prefs.java` 的说明） |
+| `out_type_size_dp` | `11` | 6 – 22（只用于环外；dp，消费端乘密度成像素。取代裸像素键 `out_type_size`（默认 32、范围 16–64），旧值在读取时按 `px ÷ density` 迁移一次，旧键从此不再写入） |
 | `type_suffix_scale` | `65` | 50 – 100（结尾为 A 的类型如 5GA，末尾 A 相对主字号的百分比；环内分段绘制、环外用 `RelativeSizeSpan`，两处共用同一个键） |
 | `out_type_margin_left_dp` | `2` | 0 – 16（环外标签与其**外侧**的空隙，dp；RTL 下随整行镜像） |
 | `out_type_margin_right_dp` | `2` | 0 – 16（环外标签与其**内侧**的空隙，dp；RTL 下同样镜像） |
 | `out_signal_size_dp` | `15` | 6 – 20（环外信号读数的 dp 高度；乘显示器密度成像素，**不跟随电池容器高度**，只用于环外 + 堆叠信号） |
-| `out_signal_offset_x_dp` | `0` | -12 – 12（环外读数左右偏移的 dp；正数向右，标签跟着走） |
-| `out_signal_offset_y_dp` | `0` | -12 – 12（环外读数上下偏移的 dp；正数向下，只动读数不改占位） |
+| `out_signal_margin_dp` | `2` | 0 – 16（环外读数与电池之间的**会占位**边距，dp；调大时原生图标同步让位。只用于环外 + 堆叠信号） |
 | `type_weight` | `700` | 100 – 900（环内/环外共用） |
 | `track_alpha` | `56` | 0 – 255 |
 | `debug_log` | `false` | — |

@@ -135,9 +135,12 @@ public final class TrioSettings {
      */
     public int outTypeMarginLeft;
     public int outTypeMarginRight;
-    /** Nudge applied to the out-of-ring reading's frame, in dp: x right, y down. */
-    public int outSignalOffsetX;
-    public int outSignalOffsetY;
+    /**
+     * The gap between the out-of-ring reading and the battery, in dp. A reserved
+     * margin, not a position: widening it also pushes the native icon row over
+     * by the same amount, so the reading can never end up on top of the icons.
+     */
+    public int outSignalMargin;
     /**
      * Scale of a trailing "A" in the network type, as a percentage of the main
      * size. 100 means no shrink; the reference "5GA" is 65.
@@ -183,8 +186,7 @@ public final class TrioSettings {
         s.outSignalSize = Prefs.DEF_OUT_SIGNAL_SIZE;
         s.outTypeMarginLeft = Prefs.DEF_OUT_TYPE_MARGIN_LEFT;
         s.outTypeMarginRight = Prefs.DEF_OUT_TYPE_MARGIN_RIGHT;
-        s.outSignalOffsetX = Prefs.DEF_OUT_SIGNAL_OFFSET_X;
-        s.outSignalOffsetY = Prefs.DEF_OUT_SIGNAL_OFFSET_Y;
+        s.outSignalMargin = Prefs.DEF_OUT_SIGNAL_MARGIN;
         s.typeSuffixScale = Prefs.DEF_TYPE_SUFFIX_SCALE;
         s.typeWeight = Prefs.DEF_TYPE_WEIGHT;
         s.trackAlpha = Prefs.DEF_TRACK_ALPHA;
@@ -195,8 +197,26 @@ public final class TrioSettings {
     /**
      * Reads every key, falling back to the shared defaults. Numeric keys are
      * clamped here rather than at draw time so the renderer can trust them.
+     *
+     * <p>Same as {@link #from(SharedPreferences, float)} at the density the
+     * retired raw-pixel keys were authored on. Kept for callers that have no
+     * display to ask - the workbench stubs - which never hold a migrated value
+     * anyway.
      */
     public static TrioSettings from(SharedPreferences p) {
+        return from(p, Prefs.AUTHORED_DENSITY);
+    }
+
+    /**
+     * Reads every key, falling back to the shared defaults. Numeric keys are
+     * clamped here rather than at draw time so the renderer can trust them.
+     *
+     * @param density the display's density, needed only to convert a value left
+     *        in the retired raw-pixel {@link Prefs#KEY_OUT_TYPE_SIZE} by an
+     *        install that predates {@link Prefs#KEY_OUT_TYPE_SIZE_DP}; ignored
+     *        once the new key exists
+     */
+    public static TrioSettings from(SharedPreferences p, float density) {
         TrioSettings s = new TrioSettings();
         s.enabled = p.getBoolean(Prefs.KEY_ENABLED, Prefs.DEF_ENABLED);
         s.showWifi = p.getBoolean(Prefs.KEY_SHOW_WIFI, Prefs.DEF_SHOW_WIFI);
@@ -242,9 +262,7 @@ public final class TrioSettings {
         s.typeSize = Prefs.clamp(
                 p.getInt(Prefs.KEY_TYPE_SIZE, Prefs.DEF_TYPE_SIZE),
                 Prefs.MIN_TYPE_SIZE, Prefs.MAX_TYPE_SIZE);
-        s.outTypeSize = Prefs.clamp(
-                p.getInt(Prefs.KEY_OUT_TYPE_SIZE, Prefs.DEF_OUT_TYPE_SIZE),
-                Prefs.MIN_OUT_TYPE_SIZE, Prefs.MAX_OUT_TYPE_SIZE);
+        s.outTypeSize = readOutTypeSize(p, density);
         s.outSignalSize = Prefs.clamp(
                 p.getInt(Prefs.KEY_OUT_SIGNAL_SIZE, Prefs.DEF_OUT_SIGNAL_SIZE),
                 Prefs.MIN_OUT_SIGNAL_SIZE, Prefs.MAX_OUT_SIGNAL_SIZE);
@@ -254,12 +272,9 @@ public final class TrioSettings {
         s.outTypeMarginRight = Prefs.clamp(
                 p.getInt(Prefs.KEY_OUT_TYPE_MARGIN_RIGHT, Prefs.DEF_OUT_TYPE_MARGIN_RIGHT),
                 Prefs.MIN_OUT_TYPE_MARGIN, Prefs.MAX_OUT_TYPE_MARGIN);
-        s.outSignalOffsetX = Prefs.clamp(
-                p.getInt(Prefs.KEY_OUT_SIGNAL_OFFSET_X, Prefs.DEF_OUT_SIGNAL_OFFSET_X),
-                Prefs.MIN_OUT_SIGNAL_OFFSET, Prefs.MAX_OUT_SIGNAL_OFFSET);
-        s.outSignalOffsetY = Prefs.clamp(
-                p.getInt(Prefs.KEY_OUT_SIGNAL_OFFSET_Y, Prefs.DEF_OUT_SIGNAL_OFFSET_Y),
-                Prefs.MIN_OUT_SIGNAL_OFFSET, Prefs.MAX_OUT_SIGNAL_OFFSET);
+        s.outSignalMargin = Prefs.clamp(
+                p.getInt(Prefs.KEY_OUT_SIGNAL_MARGIN, Prefs.DEF_OUT_SIGNAL_MARGIN),
+                Prefs.MIN_OUT_SIGNAL_MARGIN, Prefs.MAX_OUT_SIGNAL_MARGIN);
         s.typeSuffixScale = Prefs.clamp(
                 p.getInt(Prefs.KEY_TYPE_SUFFIX_SCALE, Prefs.DEF_TYPE_SUFFIX_SCALE),
                 Prefs.MIN_TYPE_SUFFIX_SCALE, Prefs.MAX_TYPE_SUFFIX_SCALE);
@@ -292,6 +307,39 @@ public final class TrioSettings {
         return p.getBoolean(Prefs.KEY_SHOW_MOBILE_TYPE, Prefs.DEF_SHOW_MOBILE_TYPE)
                 ? Prefs.MOBILE_TYPE_IN_RING
                 : Prefs.MOBILE_TYPE_OFF;
+    }
+
+    /**
+     * Reads the out-of-ring type size, migrating the retired raw-pixel key.
+     *
+     * <p>The dp key wins whenever it is present. Only an install that predates
+     * it - one that may hold a raw-pixel value in {@link Prefs#KEY_OUT_TYPE_SIZE}
+     * - has that value converted once, by dividing by the display density that
+     * gives the pixels their physical size. An install that never touched the
+     * old slider has no old key at all and simply gets the new default, which is
+     * the old default's physical size at the density it was authored on. The old
+     * key is never written again, so like
+     * {@link #readMobileTypeMode(SharedPreferences)} this runs at most until the
+     * user's first write of the new key.
+     *
+     * <p>The conversion rounds before clamping so a user's tuned value lands
+     * exactly where it did: 32px at density 3 reads as 11dp, inside the new
+     * range with room on both sides.
+     */
+    private static int readOutTypeSize(SharedPreferences p, float density) {
+        if (p.contains(Prefs.KEY_OUT_TYPE_SIZE_DP)) {
+            return Prefs.clamp(
+                    p.getInt(Prefs.KEY_OUT_TYPE_SIZE_DP, Prefs.DEF_OUT_TYPE_SIZE_DP),
+                    Prefs.MIN_OUT_TYPE_SIZE_DP, Prefs.MAX_OUT_TYPE_SIZE_DP);
+        }
+        if (p.contains(Prefs.KEY_OUT_TYPE_SIZE)) {
+            final float safeDensity = density > 0f ? density : Prefs.AUTHORED_DENSITY;
+            return Prefs.clamp(
+                    Math.round(p.getInt(Prefs.KEY_OUT_TYPE_SIZE, Prefs.DEF_OUT_TYPE_SIZE)
+                            / safeDensity),
+                    Prefs.MIN_OUT_TYPE_SIZE_DP, Prefs.MAX_OUT_TYPE_SIZE_DP);
+        }
+        return Prefs.DEF_OUT_TYPE_SIZE_DP;
     }
 
     /**
@@ -351,8 +399,7 @@ public final class TrioSettings {
         s.outSignalSize = outSignalSize;
         s.outTypeMarginLeft = outTypeMarginLeft;
         s.outTypeMarginRight = outTypeMarginRight;
-        s.outSignalOffsetX = outSignalOffsetX;
-        s.outSignalOffsetY = outSignalOffsetY;
+        s.outSignalMargin = outSignalMargin;
         s.typeSuffixScale = typeSuffixScale;
         s.typeWeight = typeWeight;
         s.trackAlpha = trackAlpha;
@@ -405,12 +452,11 @@ public final class TrioSettings {
             case Prefs.KEY_VALUE_SIZE: valueSize = src.valueSize; return true;
             case Prefs.KEY_VALUE_WEIGHT: valueWeight = src.valueWeight; return true;
             case Prefs.KEY_TYPE_SIZE: typeSize = src.typeSize; return true;
-            case Prefs.KEY_OUT_TYPE_SIZE: outTypeSize = src.outTypeSize; return true;
+            case Prefs.KEY_OUT_TYPE_SIZE_DP: outTypeSize = src.outTypeSize; return true;
             case Prefs.KEY_OUT_SIGNAL_SIZE: outSignalSize = src.outSignalSize; return true;
             case Prefs.KEY_OUT_TYPE_MARGIN_LEFT: outTypeMarginLeft = src.outTypeMarginLeft; return true;
             case Prefs.KEY_OUT_TYPE_MARGIN_RIGHT: outTypeMarginRight = src.outTypeMarginRight; return true;
-            case Prefs.KEY_OUT_SIGNAL_OFFSET_X: outSignalOffsetX = src.outSignalOffsetX; return true;
-            case Prefs.KEY_OUT_SIGNAL_OFFSET_Y: outSignalOffsetY = src.outSignalOffsetY; return true;
+            case Prefs.KEY_OUT_SIGNAL_MARGIN: outSignalMargin = src.outSignalMargin; return true;
             case Prefs.KEY_TYPE_SUFFIX_SCALE: typeSuffixScale = src.typeSuffixScale; return true;
             case Prefs.KEY_TYPE_WEIGHT: typeWeight = src.typeWeight; return true;
             case Prefs.KEY_TRACK_ALPHA: trackAlpha = src.trackAlpha; return true;
@@ -477,8 +523,8 @@ public final class TrioSettings {
                 bundle.getInt(Prefs.KEY_TYPE_SIZE, Prefs.DEF_TYPE_SIZE),
                 Prefs.MIN_TYPE_SIZE, Prefs.MAX_TYPE_SIZE);
         s.outTypeSize = Prefs.clamp(
-                bundle.getInt(Prefs.KEY_OUT_TYPE_SIZE, Prefs.DEF_OUT_TYPE_SIZE),
-                Prefs.MIN_OUT_TYPE_SIZE, Prefs.MAX_OUT_TYPE_SIZE);
+                bundle.getInt(Prefs.KEY_OUT_TYPE_SIZE_DP, Prefs.DEF_OUT_TYPE_SIZE_DP),
+                Prefs.MIN_OUT_TYPE_SIZE_DP, Prefs.MAX_OUT_TYPE_SIZE_DP);
         s.outSignalSize = Prefs.clamp(
                 bundle.getInt(Prefs.KEY_OUT_SIGNAL_SIZE, Prefs.DEF_OUT_SIGNAL_SIZE),
                 Prefs.MIN_OUT_SIGNAL_SIZE, Prefs.MAX_OUT_SIGNAL_SIZE);
@@ -488,12 +534,9 @@ public final class TrioSettings {
         s.outTypeMarginRight = Prefs.clamp(
                 bundle.getInt(Prefs.KEY_OUT_TYPE_MARGIN_RIGHT, Prefs.DEF_OUT_TYPE_MARGIN_RIGHT),
                 Prefs.MIN_OUT_TYPE_MARGIN, Prefs.MAX_OUT_TYPE_MARGIN);
-        s.outSignalOffsetX = Prefs.clamp(
-                bundle.getInt(Prefs.KEY_OUT_SIGNAL_OFFSET_X, Prefs.DEF_OUT_SIGNAL_OFFSET_X),
-                Prefs.MIN_OUT_SIGNAL_OFFSET, Prefs.MAX_OUT_SIGNAL_OFFSET);
-        s.outSignalOffsetY = Prefs.clamp(
-                bundle.getInt(Prefs.KEY_OUT_SIGNAL_OFFSET_Y, Prefs.DEF_OUT_SIGNAL_OFFSET_Y),
-                Prefs.MIN_OUT_SIGNAL_OFFSET, Prefs.MAX_OUT_SIGNAL_OFFSET);
+        s.outSignalMargin = Prefs.clamp(
+                bundle.getInt(Prefs.KEY_OUT_SIGNAL_MARGIN, Prefs.DEF_OUT_SIGNAL_MARGIN),
+                Prefs.MIN_OUT_SIGNAL_MARGIN, Prefs.MAX_OUT_SIGNAL_MARGIN);
         s.typeSuffixScale = Prefs.clamp(
                 bundle.getInt(Prefs.KEY_TYPE_SUFFIX_SCALE, Prefs.DEF_TYPE_SUFFIX_SCALE),
                 Prefs.MIN_TYPE_SUFFIX_SCALE, Prefs.MAX_TYPE_SUFFIX_SCALE);
@@ -563,17 +606,75 @@ public final class TrioSettings {
         b.putInt(Prefs.KEY_VALUE_SIZE, valueSize);
         b.putInt(Prefs.KEY_VALUE_WEIGHT, valueWeight);
         b.putInt(Prefs.KEY_TYPE_SIZE, typeSize);
-        b.putInt(Prefs.KEY_OUT_TYPE_SIZE, outTypeSize);
+        b.putInt(Prefs.KEY_OUT_TYPE_SIZE_DP, outTypeSize);
         b.putInt(Prefs.KEY_OUT_SIGNAL_SIZE, outSignalSize);
         b.putInt(Prefs.KEY_OUT_TYPE_MARGIN_LEFT, outTypeMarginLeft);
         b.putInt(Prefs.KEY_OUT_TYPE_MARGIN_RIGHT, outTypeMarginRight);
-        b.putInt(Prefs.KEY_OUT_SIGNAL_OFFSET_X, outSignalOffsetX);
-        b.putInt(Prefs.KEY_OUT_SIGNAL_OFFSET_Y, outSignalOffsetY);
+        b.putInt(Prefs.KEY_OUT_SIGNAL_MARGIN, outSignalMargin);
         b.putInt(Prefs.KEY_TYPE_SUFFIX_SCALE, typeSuffixScale);
         b.putInt(Prefs.KEY_TYPE_WEIGHT, typeWeight);
         b.putInt(Prefs.KEY_TRACK_ALPHA, trackAlpha);
 
         b.putBoolean(Prefs.KEY_DEBUG_LOG, debugLog);
         return b;
+    }
+
+    /**
+     * Field-wise equality. Exists for one caller - the boot-time re-read in
+     * {@code TrioConfig}, which must not notify the listeners (and re-fold every
+     * container) when the delayed read saw the same values the first one did -
+     * but a full comparison is also what a snapshot type ought to answer.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (!(o instanceof TrioSettings)) {
+            return false;
+        }
+        final TrioSettings s = (TrioSettings) o;
+        return enabled == s.enabled
+                && showWifi == s.showWifi
+                && showMobile == s.showMobile
+                && showValue == s.showValue
+                && showBolt == s.showBolt
+                && mobileTypeMode == s.mobileTypeMode
+                && valueCentred == s.valueCentred
+                && trioStyle == s.trioStyle
+                && dualSim == s.dualSim
+                && signalMode == s.signalMode
+                && stackedSignal == s.stackedSignal
+                && dataSimOnly == s.dataSimOnly
+                && roleColors == s.roleColors
+                && criticalOnDark == s.criticalOnDark
+                && criticalOnLight == s.criticalOnLight
+                && chargingOnDark == s.chargingOnDark
+                && chargingOnLight == s.chargingOnLight
+                && lowOnDark == s.lowOnDark
+                && lowOnLight == s.lowOnLight
+                && lowThreshold == s.lowThreshold
+                && ringStroke == s.ringStroke
+                && arcStroke == s.arcStroke
+                && valueSize == s.valueSize
+                && valueWeight == s.valueWeight
+                && typeSize == s.typeSize
+                && outTypeSize == s.outTypeSize
+                && outSignalSize == s.outSignalSize
+                && outTypeMarginLeft == s.outTypeMarginLeft
+                && outTypeMarginRight == s.outTypeMarginRight
+                && outSignalMargin == s.outSignalMargin
+                && typeSuffixScale == s.typeSuffixScale
+                && typeWeight == s.typeWeight
+                && trackAlpha == s.trackAlpha
+                && debugLog == s.debugLog;
+    }
+
+    @Override
+    public int hashCode() {
+        // Fields are small ints and booleans; a cheap fold is enough. The class
+        // is used as a value only through equals() - nothing hashes it.
+        int h = (enabled ? 1 : 0) ^ (mobileTypeMode << 1) ^ signalMode ^ trioStyle;
+        return h != 0 ? h : 1;
     }
 }

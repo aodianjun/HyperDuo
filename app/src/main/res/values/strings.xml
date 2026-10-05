@@ -10,6 +10,7 @@
     <string name="group_stroke">描边</string>
     <string name="group_text">文字</string>
     <string name="group_type">网络类型</string>
+    <string name="group_out_signal">环外信号</string>
     <string name="group_track">底纹</string>
 
     <string name="tab_general">常规</string>
@@ -60,11 +61,8 @@
     <string name="out_signal_size_title">环外信号大小</string>
     <string name="out_signal_size_summary">环外读数的整体高度，单位为 dp（会随屏幕密度自动换算成像素）。15dp 与状态栏原生信号图标同高，也是默认值；可调范围 6–20dp。无论有没有下方圆点排，同一行都按同一大小绘制，两种形状不会一大一小。下拉控制中心不会改变它。</string>
 
-    <string name="out_signal_offset_x_title">环外信号水平位置</string>
-    <string name="out_signal_offset_x_summary">环外读数在状态栏里左右移动的距离，单位为 dp，正数向右。默认 0dp，可调范围 -12–12dp。环外网络类型标签贴在读数外侧，会跟着一起移动。</string>
-
-    <string name="out_signal_offset_y_title">环外信号垂直位置</string>
-    <string name="out_signal_offset_y_summary">环外读数在状态栏里上下移动的距离，单位为 dp，正数向下。默认 0dp，可调范围 -12–12dp。只影响读数自己，不改变它的高度与占位。</string>
+    <string name="out_signal_margin_title">环外信号间距</string>
+    <string name="out_signal_margin_summary">环外读数与电池图标之间的空隙，单位为 dp。默认 2dp，可调范围 0–16dp。这是一条会被占位的边距：调大时读数远离电池，同时原生图标整体让出同样宽度，所以读数永远不会压到旁边的图标上。读数本身的高矮由上面的「环外信号大小」决定，不需要再单独调位置。</string>
 
     <string name="value_centre_title">电量数字居中</string>
     <string name="value_centre_summary">电量数字放大到圆环中间并始终优先占据圆心。Wi-Fi 弧缩到顶部缺口，充电时改用小的闪电占用缺口（此时不画 Wi-Fi 弧），环内的网络类型也让位到缺口。</string>
@@ -97,7 +95,7 @@
     <string name="arc_stroke_summary_rect">Wi-Fi 弧线的描边宽度，同时决定这组弧线在顶部槽位里的纵向位置。</string>
 
     <string name="value_size_title">数字字号</string>
-    <string name="value_size_summary">电量百分比文字的尺寸。</string>
+    <string name="value_size_summary">电量百分比文字的尺寸。注意「电量数字居中」打开时，居中的数字最大放大到原值的 1.4 倍，38 及以上不再变大（缺口里的数字仍按原值）。</string>
 
     <string name="value_weight_title">数字字重</string>
     <string name="value_weight_summary">电量数字的笔画粗细，100 最细、900 最粗。</string>
@@ -106,7 +104,7 @@
     <string name="type_size_summary">圆环中间 3G/4G/5G 等文字的大小。</string>
 
     <string name="out_type_size_title">环外网络类型字号</string>
-    <string name="out_type_size_summary">状态栏中环外 3G/4G/5G 等文字的大小。这个标签由系统状态栏绘制，设置页里的预览格是它唯一的所见即所得参照。</string>
+    <string name="out_type_size_summary">状态栏中环外 3G/4G/5G 等文字的大小，单位为 dp（会随屏幕密度自动换算成像素），可调范围 6–22dp。这个标签由系统状态栏绘制，设置页里的预览格是它唯一的所见即所得参照。</string>
 
     <string name="out_type_margin_left_title">环外类型左边距</string>
     <string name="out_type_margin_left_summary">环外网络类型标签与其外侧（背对电池的一侧）之间的空隙，单位为 dp。默认 2dp，可调范围 0–16dp。RTL 语言下整行镜像，这条边距会跟着翻到另一侧。</string>

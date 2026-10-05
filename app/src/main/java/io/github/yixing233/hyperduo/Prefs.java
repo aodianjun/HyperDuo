@@ -17,6 +17,13 @@ public final class Prefs {
     private Prefs() {
     }
 
+    /**
+     * The display density the retired raw-pixel sizes were authored against -
+     * the test device's density 3. Only the one-time migration consults this,
+     * when it has no real display to ask (the desktop workbenches).
+     */
+    public static final float AUTHORED_DENSITY = 3f;
+
     /** Remote-preference group name. Also the settings app's file name. */
     public static final String NAME = "hyperduo_settings";
 
@@ -204,8 +211,37 @@ public final class Prefs {
      * <p>An {@code int}, like {@link #KEY_TYPE_SIZE}. A brand-new key name and
      * never a reuse of the old one: the framework does no type conversion, so
      * every key has exactly one type for the whole lifetime of the module.
+     *
+     * @deprecated Superseded by {@link #KEY_OUT_TYPE_SIZE_DP}. This key held raw
+     * pixels, which made the same slider value a different physical size on
+     * every density - the exact defect that moved {@link #KEY_OUT_SIGNAL_SIZE}
+     * to a dp a release earlier. Kept readable only for the one-time migration;
+     * never written again.
      */
+    @Deprecated
     public static final String KEY_OUT_TYPE_SIZE = "out_type_size";
+    /**
+     * Font size of the network type outside the ring, in density pixels.
+     *
+     * <p>Replaces the retired raw-pixel key above. The label is a real view in
+     * the status bar's pixel space, but the <em>setting</em> is a length the
+     * user reasons about, and only a dp means the same slider value lands on the
+     * same physical size on every screen - same reasoning as
+     * {@link #KEY_OUT_SIGNAL_SIZE}, which moved to a dp for exactly this. The
+     * conversion to pixels happens at the point of use, where a {@code Resources}
+     * is at hand; this class stays Android-free.
+     *
+     * <p>Migration follows the {@link #KEY_MOBILE_TYPE_MODE} pattern: the new
+     * key wins whenever present, and only an install predating it - which may
+     * hold a raw-pixel value in the old key - has that value converted once
+     * (px &divide; density) into the new key's terms. Users who never touched the
+     * old slider get the new default, which equals the old default at the
+     * density it was authored on.
+     *
+     * <p>An {@code int}, a brand-new name, never a reuse - see
+     * {@link #KEY_MOBILE_TYPE_MODE}.
+     */
+    public static final String KEY_OUT_TYPE_SIZE_DP = "out_type_size_dp";
     /**
      * The stacked out-of-ring signal's height, in density pixels.
      *
@@ -251,17 +287,26 @@ public final class Prefs {
     public static final String KEY_OUT_TYPE_MARGIN_LEFT = "out_type_margin_left_dp";
     public static final String KEY_OUT_TYPE_MARGIN_RIGHT = "out_type_margin_right_dp";
     /**
-     * How far the out-of-ring signal reading is nudged from the place the status
-     * bar computed for it, in density pixels; positive is right and down.
+     * The gap between the out-of-ring signal reading and the battery meter, in
+     * density pixels.
      *
-     * <p>Applied to the reading's laid-out frame rather than to its drawing, so
-     * the label anchored on the reading follows it instead of being left behind.
-     * Kept as dp for the same reason as the margins above.
+     * <p>A margin rather than a position. This length is reserved out of the
+     * native icon row exactly like the label margins above, so widening it moves
+     * the reading away from the battery <em>and</em> pushes the icons over by the
+     * same amount. An earlier version of this setting was a free position offset
+     * instead: it moved the view without reserving anything, so the reading slid
+     * out of the room set aside for it and painted over the neighbouring icons.
      *
-     * <p>New names, never a reuse - see {@link #KEY_MOBILE_TYPE_MODE}.
+     * <p>dp for the same reason as the label margins: the status bar's real pixel
+     * space, whose row height MIUI changes under the control centre.
+     *
+     * <p>Defaults to the gap that was hard-coded before it was settable, so an
+     * install that never touches it keeps exactly the spacing it had.
+     *
+     * <p>A brand-new name, never a reuse of the retired offset keys - see
+     * {@link #KEY_MOBILE_TYPE_MODE}.
      */
-    public static final String KEY_OUT_SIGNAL_OFFSET_X = "out_signal_offset_x_dp";
-    public static final String KEY_OUT_SIGNAL_OFFSET_Y = "out_signal_offset_y_dp";
+    public static final String KEY_OUT_SIGNAL_MARGIN = "out_signal_margin_dp";
     /**
      * How large a trailing "A" is drawn against the rest of the network type, as
      * a percentage.
@@ -395,8 +440,23 @@ public final class Prefs {
      * Font size of the network type when it is drawn outside the ring, at the
      * status bar's own scale. 32 matches {@link #DEF_TYPE_SIZE}, so a user who
      * never touches the new slider keeps exactly the look they had.
+     *
+     * @deprecated Raw pixels, superseded by {@link #DEF_OUT_TYPE_SIZE_DP}; read
+     * only by the one-time migration. 32px was authored on the density-3 test
+     * device, where it is 10.67dp - the new default rounds to the same look.
      */
+    @Deprecated
     public static final int DEF_OUT_TYPE_SIZE = 32;
+    /**
+     * Font size of the network type outside the ring, in density pixels.
+     *
+     * <p>11dp reproduces the retired raw-pixel default of 32 on the density-3
+     * device it was authored on (32 &divide; 3 = 10.67, rounded) and is the value
+     * every fresh install starts from. MIUI's own status-bar type text measures
+     * about 7.2dp on that device, so 11 keeps the module's label the larger of
+     * the two, as shipped.
+     */
+    public static final int DEF_OUT_TYPE_SIZE_DP = 11;
     /**
      * The stacked out-of-ring signal's height, in density pixels.
      *
@@ -416,11 +476,11 @@ public final class Prefs {
     public static final int DEF_OUT_TYPE_MARGIN_LEFT = 2;
     public static final int DEF_OUT_TYPE_MARGIN_RIGHT = 2;
     /**
-     * No nudge by default: the reading sits exactly where the status bar laid it
-     * out, which is the look every install already has.
+     * 2dp: the gap the reading kept from the battery before it was settable
+     * (the same value the label margins default to, since one constant served
+     * both), so the shipped spacing is unchanged.
      */
-    public static final int DEF_OUT_SIGNAL_OFFSET_X = 0;
-    public static final int DEF_OUT_SIGNAL_OFFSET_Y = 0;
+    public static final int DEF_OUT_SIGNAL_MARGIN = 2;
     /**
      * 65% for the trailing "A": the reference's {@code 56/86} ratio, measured
      * from {@code docs/ref-5ga.png}. 100 turns the shrink off.
@@ -447,8 +507,25 @@ public final class Prefs {
      * Higher than {@link #MAX_TYPE_SIZE} on purpose: the out-of-ring label sits
      * in the status bar's real pixel space rather than the ring's design space,
      * so it needs headroom the in-ring label does not.
+     *
+     * @deprecated Raw-pixel bounds of the retired {@link #KEY_OUT_TYPE_SIZE};
+     * read only by the one-time migration, which clamps the converted value
+     * into the new dp range.
      */
+    @Deprecated
     public static final int MAX_OUT_TYPE_SIZE = 64;
+    /**
+     * The span the out-of-ring type size offers, in density pixels.
+     *
+     * <p>6dp is where the label stops reading as text at status-bar sizes
+     * (MIUI's own type text is about 7.2dp); 22dp matches the tallest the
+     * reading itself goes (20dp) with a little headroom, past which the label
+     * starts pushing the icons around it. The retired pixel range 16..64 maps
+     * to 5.3..21.3dp on the density-3 device it was authored on, so the dp
+     * range covers the same physical span.
+     */
+    public static final int MIN_OUT_TYPE_SIZE_DP = 6;
+    public static final int MAX_OUT_TYPE_SIZE_DP = 22;
     /**
      * The physical span the slider offers, in density pixels: 6dp (18px at
      * density 3) is where the four bars stop being distinguishable, and 20dp
@@ -472,14 +549,16 @@ public final class Prefs {
     public static final int MIN_OUT_TYPE_MARGIN = 0;
     public static final int MAX_OUT_TYPE_MARGIN = 16;
     /**
-     * The nudge the out-of-ring reading accepts, in dp, in either direction.
+     * The span the signal margin offers, in dp.
      *
-     * <p>Bounded at 12 so the reading cannot be walked far enough to collide
-     * with the battery on one side or leave the status bar's touchable strip on
-     * the other; the same span is offered on both axes.
+     * <p>Non-negative on purpose: unlike the retired position offset, this is a
+     * reserved gap. A negative value would mean "overlap the battery", which is
+     * the very thing the reservation exists to prevent. 0 lets the reading butt
+     * up against the battery; 16 is a comfortable separation without eating the
+     * status bar.
      */
-    public static final int MIN_OUT_SIGNAL_OFFSET = -12;
-    public static final int MAX_OUT_SIGNAL_OFFSET = 12;
+    public static final int MIN_OUT_SIGNAL_MARGIN = 0;
+    public static final int MAX_OUT_SIGNAL_MARGIN = 16;
     /**
      * The trailing "A" may be the same size as the rest (100) or a little over
      * half of it (50). Below 50 the suffix stops reading as a letter at status

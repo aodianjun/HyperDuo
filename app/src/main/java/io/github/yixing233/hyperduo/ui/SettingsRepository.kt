@@ -33,11 +33,15 @@ class SettingsRepository(context: Context) {
     private val appContext = context.applicationContext
     private val service: XposedService? get() = HyperDuoApp.xposedService
 
+    /** The display density, needed to migrate the retired raw-pixel size key. */
+    private val density: Float
+        get() = appContext.resources.displayMetrics.density
+
     private fun preferences() =
         appContext.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
 
     /** The current values, as the preview should render them. */
-    fun read(): TrioSettings = TrioSettings.from(preferences())
+    fun read(): TrioSettings = TrioSettings.from(preferences(), density)
 
     // ------------------------------------------------------------- appearance
 
@@ -99,12 +103,11 @@ class SettingsRepository(context: Context) {
     fun setValueSize(value: Int) = writeInt(Prefs.KEY_VALUE_SIZE, value)
     fun setValueWeight(value: Int) = writeInt(Prefs.KEY_VALUE_WEIGHT, value)
     fun setTypeSize(value: Int) = writeInt(Prefs.KEY_TYPE_SIZE, value)
-    fun setOutTypeSize(value: Int) = writeInt(Prefs.KEY_OUT_TYPE_SIZE, value)
+    fun setOutTypeSize(value: Int) = writeInt(Prefs.KEY_OUT_TYPE_SIZE_DP, value)
     fun setOutSignalSize(value: Int) = writeInt(Prefs.KEY_OUT_SIGNAL_SIZE, value)
     fun setOutTypeMarginLeft(value: Int) = writeInt(Prefs.KEY_OUT_TYPE_MARGIN_LEFT, value)
     fun setOutTypeMarginRight(value: Int) = writeInt(Prefs.KEY_OUT_TYPE_MARGIN_RIGHT, value)
-    fun setOutSignalOffsetX(value: Int) = writeInt(Prefs.KEY_OUT_SIGNAL_OFFSET_X, value)
-    fun setOutSignalOffsetY(value: Int) = writeInt(Prefs.KEY_OUT_SIGNAL_OFFSET_Y, value)
+    fun setOutSignalMargin(value: Int) = writeInt(Prefs.KEY_OUT_SIGNAL_MARGIN, value)
     fun setTypeSuffixScale(value: Int) = writeInt(Prefs.KEY_TYPE_SUFFIX_SCALE, value)
     fun setTypeWeight(value: Int) = writeInt(Prefs.KEY_TYPE_WEIGHT, value)
     fun setTrackAlpha(value: Int) = writeInt(Prefs.KEY_TRACK_ALPHA, value)
@@ -124,7 +127,7 @@ class SettingsRepository(context: Context) {
      */
     fun syncAllToFramework() {
         val current = preferences()
-        val snapshot = TrioSettings.from(current)
+        val snapshot = TrioSettings.from(current, density)
         push { prefs ->
             prefs.putBoolean(Prefs.KEY_ENABLED, snapshot.enabled)
             prefs.putBoolean(Prefs.KEY_SHOW_WIFI, snapshot.showWifi)
@@ -154,12 +157,11 @@ class SettingsRepository(context: Context) {
             prefs.putInt(Prefs.KEY_VALUE_SIZE, snapshot.valueSize)
             prefs.putInt(Prefs.KEY_VALUE_WEIGHT, snapshot.valueWeight)
             prefs.putInt(Prefs.KEY_TYPE_SIZE, snapshot.typeSize)
-            prefs.putInt(Prefs.KEY_OUT_TYPE_SIZE, snapshot.outTypeSize)
+            prefs.putInt(Prefs.KEY_OUT_TYPE_SIZE_DP, snapshot.outTypeSize)
             prefs.putInt(Prefs.KEY_OUT_SIGNAL_SIZE, snapshot.outSignalSize)
             prefs.putInt(Prefs.KEY_OUT_TYPE_MARGIN_LEFT, snapshot.outTypeMarginLeft)
             prefs.putInt(Prefs.KEY_OUT_TYPE_MARGIN_RIGHT, snapshot.outTypeMarginRight)
-            prefs.putInt(Prefs.KEY_OUT_SIGNAL_OFFSET_X, snapshot.outSignalOffsetX)
-            prefs.putInt(Prefs.KEY_OUT_SIGNAL_OFFSET_Y, snapshot.outSignalOffsetY)
+            prefs.putInt(Prefs.KEY_OUT_SIGNAL_MARGIN, snapshot.outSignalMargin)
             prefs.putInt(Prefs.KEY_TYPE_SUFFIX_SCALE, snapshot.typeSuffixScale)
             prefs.putInt(Prefs.KEY_TYPE_WEIGHT, snapshot.typeWeight)
             prefs.putInt(Prefs.KEY_TRACK_ALPHA, snapshot.trackAlpha)
@@ -199,7 +201,7 @@ class SettingsRepository(context: Context) {
         runCatching {
             val intent = Intent(Prefs.ACTION_RELOAD)
                 .setPackage(Prefs.SYSTEMUI_PACKAGE)
-                .putExtras(TrioSettings.from(preferences()).toBundle())
+                .putExtras(TrioSettings.from(preferences(), density).toBundle())
             appContext.sendBroadcast(intent)
         }.onFailure { Log.w(TAG, "cannot notify the hooked process", it) }
     }

@@ -965,10 +965,11 @@ private fun LazyListScope.geometryTab(
             ) {
                 IntSlider(
                     value = settings.outTypeSize,
-                    min = Prefs.MIN_OUT_TYPE_SIZE,
-                    max = Prefs.MAX_OUT_TYPE_SIZE,
+                    min = Prefs.MIN_OUT_TYPE_SIZE_DP,
+                    max = Prefs.MAX_OUT_TYPE_SIZE_DP,
                     title = stringResource(R.string.out_type_size_title),
                     summary = stringResource(R.string.out_type_size_summary),
+                    valueTextSuffix = "dp",
                     enabled = a.glyph && a.typeOutOfRing,
                     onValueChange = { v -> update { it.setOutTypeSize(v) } },
                 )
@@ -1009,6 +1010,7 @@ private fun LazyListScope.geometryTab(
                     max = Prefs.MAX_OUT_TYPE_MARGIN,
                     title = stringResource(R.string.out_type_margin_left_title),
                     summary = stringResource(R.string.out_type_margin_left_summary),
+                    valueTextSuffix = "dp",
                     enabled = a.glyph && a.typeOutOfRing,
                     onValueChange = { v -> update { it.setOutTypeMarginLeft(v) } },
                 )
@@ -1020,10 +1022,38 @@ private fun LazyListScope.geometryTab(
                     max = Prefs.MAX_OUT_TYPE_MARGIN,
                     title = stringResource(R.string.out_type_margin_right_title),
                     summary = stringResource(R.string.out_type_margin_right_summary),
+                    valueTextSuffix = "dp",
                     enabled = a.glyph && a.typeOutOfRing,
                     onValueChange = { v -> update { it.setOutTypeMarginRight(v) } },
                 )
             }
+            // The weight still applies in both positions.
+            val typeWeightHint = gateHint(
+                a.glyph to R.string.master_title,
+                a.typeAnywhere() to R.string.show_mobile_type_title,
+            )
+            TooltipBox(text = typeWeightHint.orEmpty(), enabled = typeWeightHint != null) {
+                IntSlider(
+                    value = settings.typeWeight,
+                    min = Prefs.MIN_TYPE_WEIGHT,
+                    max = Prefs.MAX_TYPE_WEIGHT,
+                    title = stringResource(R.string.type_weight_title),
+                    summary = stringResource(R.string.type_weight_summary),
+                    step = WEIGHT_STEP,
+                    enabled = a.glyph && a.typeAnywhere(),
+                    onValueChange = { v -> update { it.setTypeWeight(v) } },
+                )
+            }
+        }
+    }
+    // The out-of-ring reading gets its own card: it is a different element from
+    // the type label (which is why its two sliders were buried in the type card
+    // until now), it has a different gate - the stacked reading has to actually
+    // be drawn - and mixing the two groups made the user dig for the spacing
+    // row between type rows that do not affect it.
+    item { SectionTitle(stringResource(R.string.group_out_signal)) }
+    item {
+        Card {
             // The size of the out-of-ring reading itself. It is authored against
             // neither design space and against no view either: the setting is a
             // plain dp, resolved against the display's density, so it is the same
@@ -1051,56 +1081,29 @@ private fun LazyListScope.geometryTab(
                     max = Prefs.MAX_OUT_SIGNAL_SIZE,
                     title = stringResource(R.string.out_signal_size_title),
                     summary = stringResource(R.string.out_signal_size_summary),
+                    valueTextSuffix = "dp",
                     enabled = a.stackedOut(),
                     onValueChange = { v -> update { it.setOutSignalSize(v) } },
                 )
             }
-            // Where the reading sits inside the row it was given. Same gate as
-            // its size - the nudge only has a reading to move while one is
-            // drawn - and the same four conditions, named for the hint.
+            // How far the reading stands from the battery. A reserved margin, so
+            // it moves the native icons as well as the reading - which is why it
+            // is a gap and not a position: a free position slid the reading over
+            // the icons it should have displaced. Same gate as the size, since
+            // there is only a reading to space while one is drawn.
             TooltipBox(
                 text = outSignalSizeHint.orEmpty(),
                 enabled = outSignalSizeHint != null,
             ) {
                 IntSlider(
-                    value = settings.outSignalOffsetX,
-                    min = Prefs.MIN_OUT_SIGNAL_OFFSET,
-                    max = Prefs.MAX_OUT_SIGNAL_OFFSET,
-                    title = stringResource(R.string.out_signal_offset_x_title),
-                    summary = stringResource(R.string.out_signal_offset_x_summary),
+                    value = settings.outSignalMargin,
+                    min = Prefs.MIN_OUT_SIGNAL_MARGIN,
+                    max = Prefs.MAX_OUT_SIGNAL_MARGIN,
+                    title = stringResource(R.string.out_signal_margin_title),
+                    summary = stringResource(R.string.out_signal_margin_summary),
+                    valueTextSuffix = "dp",
                     enabled = a.stackedOut(),
-                    onValueChange = { v -> update { it.setOutSignalOffsetX(v) } },
-                )
-            }
-            TooltipBox(
-                text = outSignalSizeHint.orEmpty(),
-                enabled = outSignalSizeHint != null,
-            ) {
-                IntSlider(
-                    value = settings.outSignalOffsetY,
-                    min = Prefs.MIN_OUT_SIGNAL_OFFSET,
-                    max = Prefs.MAX_OUT_SIGNAL_OFFSET,
-                    title = stringResource(R.string.out_signal_offset_y_title),
-                    summary = stringResource(R.string.out_signal_offset_y_summary),
-                    enabled = a.stackedOut(),
-                    onValueChange = { v -> update { it.setOutSignalOffsetY(v) } },
-                )
-            }
-            // The weight still applies in both positions.
-            val typeWeightHint = gateHint(
-                a.glyph to R.string.master_title,
-                a.typeAnywhere() to R.string.show_mobile_type_title,
-            )
-            TooltipBox(text = typeWeightHint.orEmpty(), enabled = typeWeightHint != null) {
-                IntSlider(
-                    value = settings.typeWeight,
-                    min = Prefs.MIN_TYPE_WEIGHT,
-                    max = Prefs.MAX_TYPE_WEIGHT,
-                    title = stringResource(R.string.type_weight_title),
-                    summary = stringResource(R.string.type_weight_summary),
-                    step = WEIGHT_STEP,
-                    enabled = a.glyph && a.typeAnywhere(),
-                    onValueChange = { v -> update { it.setTypeWeight(v) } },
+                    onValueChange = { v -> update { it.setOutSignalMargin(v) } },
                 )
             }
         }
@@ -1923,6 +1926,9 @@ private fun Swatch(color: Int) {
  * Integer slider over a closed range, showing the current value at the end.
  *
  * @param step increment between selectable values; the range must divide by it.
+ * @param valueTextSuffix appended to the displayed number - "dp" on the sliders
+ *   whose setting is a length, so the value text says the unit the summary
+ *   talks about instead of a bare figure.
  */
 @Composable
 private fun IntSlider(
@@ -1934,6 +1940,7 @@ private fun IntSlider(
     enabled: Boolean,
     onValueChange: (Int) -> Unit,
     step: Int = 1,
+    valueTextSuffix: String? = null,
 ) {
     SliderPreference(
         value = value.toFloat(),
@@ -1947,7 +1954,7 @@ private fun IntSlider(
         },
         title = title,
         summary = summary,
-        valueText = value.toString(),
+        valueText = value.toString() + (valueTextSuffix ?: ""),
         enabled = enabled,
         valueRange = min.toFloat()..max.toFloat(),
         steps = ((max - min) / step - 1).coerceAtLeast(0),
