@@ -1649,7 +1649,12 @@ final class TrioHooks {
                         final Object arg = args.get(i);
                         if (arg instanceof Integer) {
                             final int colour = (Integer) arg;
-                            if (colour != 0) {
+                            // Every icon gets this call with its own colour, and a
+                            // firmware is free to hand one of them something that is
+                            // not the bar's ink - a charging amber for the battery,
+                            // say. Only the greys are taken, so a special case cannot
+                            // become the colour the glyph is drawn in.
+                            if (colour != 0 && isNeutral(colour)) {
                                 sBarInk = colour;
                             }
                             break;
@@ -1669,6 +1674,22 @@ final class TrioHooks {
             log(module, "no icon tint hook");
         }
         return n;
+    }
+
+    /**
+     * True for a colour with no hue to speak of - black, white, or a grey
+     * between them.
+     *
+     * <p>The bar paints its icons in one of those two, so anything else that
+     * arrives on the same call is that icon's own business, not the bar's.
+     */
+    private static boolean isNeutral(int colour) {
+        final int r = (colour >> 16) & 0xFF;
+        final int g = (colour >> 8) & 0xFF;
+        final int b = colour & 0xFF;
+        final int max = Math.max(r, Math.max(g, b));
+        final int min = Math.min(r, Math.min(g, b));
+        return max - min < 24;
     }
 
     /** True when {@code view} sits inside the keyguard's own status bar row. */
