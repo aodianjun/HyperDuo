@@ -1,0 +1,37 @@
+# Keeps this fork's main in step with the upstream repository.
+#
+# Runs once a day and on demand: fetches upstream main, merges it in, and pushes
+# only when the merge actually moved something. A fast-forward is the normal
+# case here, since this fork does not carry its own work on main.
+name: sync upstream
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: merge upstream main
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/yixing233/HyperDuo.git
+          git fetch --no-tags upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "up to date, nothing to do"
+            exit 0
+          fi
+          git merge --no-edit upstream/main
+          git push origin HEAD:main
