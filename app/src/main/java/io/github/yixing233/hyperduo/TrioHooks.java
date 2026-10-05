@@ -827,6 +827,17 @@ final class TrioHooks {
                             // over a full-screen app, for instance - starts
                             // drawing again. TrioOverlay uses the timestamp.
                             TrioOverlay.noteDrawn(host);
+                            // The lock screen's row does not lay out again once it
+                            // is up, so its container never reaches settle() down
+                            // the layout path, and the native icons would stay
+                            // unfolded beside the glyph. Its battery view still
+                            // draws, so the fold is asked for from here instead.
+                            if (isKeyguardRow(host)) {
+                                final Object keyguardContainer = iconContainerOf(host);
+                                if (keyguardContainer instanceof ViewGroup) {
+                                    settle((ViewGroup) keyguardContainer);
+                                }
+                            }
                             // The bar window is only status_bar_height tall and
                             // clips everything past it. Growing the row inside it
                             // was tried and abandoned: MIUI's own measure chain
