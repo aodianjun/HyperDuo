@@ -427,7 +427,13 @@ final class TrioState {
         // has gone black), and the icons keep their last colour once they are
         // hidden by this module (they still say "black" on a dark launcher).
         // Whichever changed more recently is the one that saw the change.
-        int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        // The colour SystemUI last painted its own icons in comes first: it is
+        // the colour the user is looking at, and it arrives as the change lands
+        // rather than after it. The fields stay as the fallback.
+        int c = TrioHooks.barInk();
+        if (c == 0) {
+            c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        }
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
         }

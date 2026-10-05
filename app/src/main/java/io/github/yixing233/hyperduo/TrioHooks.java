@@ -337,6 +337,7 @@ final class TrioHooks {
         hooked += group(module, cl, 13);
         hooked += group(module, cl, 14);
         hooked += group(module, cl, 15);
+        hooked += group(module, cl, 16);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -700,6 +701,7 @@ final class TrioHooks {
                 case 13: return hookOverviewProxy(module, cl);
                 case 14: return hookOverviewProgress(module, cl);
                 case 15: return hookLaunchAnimation(module, cl);
+                case 16: return hookIconTint(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -1613,6 +1615,73 @@ final class TrioHooks {
                 });
     }
 
+    /** The colour SystemUI last painted its own status bar icons in. */
+    private static volatile int sBarInk;
+
+    /** That colour, or 0 before SystemUI has painted anything. */
+    static int barInk() {
+        return sBarInk;
+    }
+
+    /**
+     * Hears the colour SystemUI paints its own icons in.
+     *
+     * <p>The tint fields the colour rule reads are set when the bar is built and
+     * lag behind a change of background; the call SystemUI makes to repaint the
+     * icons does not - it happens as the change lands. Both spellings are hooked
+     * because both are in the tree: {@code onDarkChanged} is the AOSP one, and
+     * {@code setIconColor} is the one MIUI added around it. Only the colour
+     * argument is read; the rest of the signature is left alone.
+     */
+    private static int hookIconTint(XposedModule module, ClassLoader cl) {
+        final Class<?> icon = Refl.cls("com.android.systemui.statusbar.StatusBarIconView", cl);
+        if (icon == null) {
+            log(module, "StatusBarIconView missing");
+            return 0;
+        }
+        final XposedInterface.Hooker hooker = new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                final Object result = chain.proceed();
+                final List<Object> args = chain.getArgs();
+                if (args != null) {
+                    for (int i = 0; i < args.size(); i++) {
+                        final Object arg = args.get(i);
+                        if (arg instanceof Integer) {
+                            final int colour = (Integer) arg;
+                            if (colour != 0) {
+                                sBarInk = colour;
+                            }
+                            break;
+                        }
+                    }
+                }
+                return result;
+            }
+        };
+        int n = 0;
+        n += hook(module, Refl.method(icon, "onDarkChanged",
+                        java.util.ArrayList.class, float.class, int.class),
+                "hyperduo-tint-dark", hooker);
+        n += hook(module, Refl.method(icon, "setIconColor", int.class, boolean.class),
+                "hyperduo-tint-set", hooker);
+        if (n == 0) {
+            log(module, "no icon tint hook");
+        }
+        return n;
+    }
+
+    /** True when {@code view} sits inside the keyguard's own status bar row. */
+    private static boolean isKeyguardRow(View view) {
+        for (ViewParent p = view.getParent(); p != null;
+             p = (p instanceof View) ? ((View) p).getParent() : null) {
+            if (p.getClass().getSimpleName().contains("Keyguard")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------- registrations
 
     /**
@@ -2075,7 +2144,15 @@ final class TrioHooks {
             return false;
         }
         if (!holdsLiveHost(owner)) {
-            return false;
+            // The lock screen's row is a second instance of the same layout -
+            // keyguard_status_bar.xml includes system_icons - and it has no live
+            // host, because the host match is scoped to the status bar's own row.
+            // Its icons still have to be folded: the trio is painted into that
+            // meter by the draw path, and without this the native signal icons
+            // sit right beside it.
+            if (!isKeyguardRow((View) container)) {
+                return false;
+            }
         }
         own(container);
         return true;
