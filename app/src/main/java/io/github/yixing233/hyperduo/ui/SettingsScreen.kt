@@ -288,6 +288,8 @@ fun SettingsScreen(repository: SettingsRepository) {
     fun update(block: (SettingsRepository) -> Unit) {
         block(repository)
         settings = repository.read()
+        android.util.Log.i("HyperDuo", "DIAG update() set settings overlayGlyph="
+                + settings.overlayGlyph + " enabled=" + settings.enabled)
     }
 
     // Switching section: tapping the one already open is a no-op rather than a
@@ -619,6 +621,8 @@ private fun LazyListScope.generalTab(
     settings: TrioSettings,
     update: ((SettingsRepository) -> Unit) -> Unit,
 ) {
+    android.util.Log.i("HyperDuo", "DIAG generalTab composed overlayGlyph=" + settings.overlayGlyph
+            + " enabled=" + settings.enabled + " wifi=" + settings.showWifi)
     item { SectionTitle(stringResource(R.string.group_appearance)) }
     item {
         Card {
