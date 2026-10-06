@@ -29,7 +29,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -468,11 +467,8 @@ fun SettingsScreen(repository: SettingsRepository) {
             entry<Route.General> {
                 SectionList(sectionPadding, isTop = nav.backStack.lastOrNull() == Route.General) {
                     sectionHeader()
-                    // The state, not its value: this entry is not recomposed
-                    // when the settings change, so a tab handed the value would
-                    // keep the one it was first built with. The rows read the
-                    // state themselves - see generalTab.
-                    generalTab(settingsState) { block -> update(block) }
+                    val s = settingsState.value
+                    generalTab(s) { block -> update(block) }
                 }
             }
 
@@ -618,24 +614,14 @@ private fun SectionList(
 /**
  * General: the master and appearance switches, then the advanced rows.
  * Advanced has no tab of its own, so it folds in here.
- *
- * <p>The settings arrive as a {@link State}, not as a value, and are read
- * inside each {@code item}. That is the whole reason for the parameter's type:
- * a tab that is handed the value composes once with whatever the settings were
- * at the time and then goes on showing them, because the navigation entry that
- * calls it is not recomposed when the settings change - only the destination
- * changing does that. Reading the state where the row is built makes the row
- * itself the subscriber, so a switch follows its own write, while a value
- * parameter left it until some unrelated write recomposed the whole tab.
  */
 private fun LazyListScope.generalTab(
-    settingsState: State<TrioSettings>,
+    settings: TrioSettings,
     update: ((SettingsRepository) -> Unit) -> Unit,
 ) {
     item { SectionTitle(stringResource(R.string.group_appearance)) }
     item {
         Card {
-            val settings by settingsState
             // The same appearance the renderer builds from these settings, so a
             // row here and the glyph on screen can never disagree about what is
             // switched on - which is what used to let the two drift apart.
