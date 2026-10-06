@@ -1676,6 +1676,27 @@ final class TrioHooks {
             }
         };
         int n = 0;
+        // The dispatcher every icon's own tint call comes out of: it answers once
+        // for the whole row, so a firmware that hands one icon a colour of its own
+        // cannot colour the glyph with it. This is the source; the per-icon calls
+        // below are only a fallback for a build that spells the dispatcher
+        // differently.
+        final Class<?> receiver = Refl.cls("com.android.systemui.DarkReceiverImpl", cl);
+        if (receiver != null) {
+            n += hook(module, Refl.method(receiver, "onDarkChanged",
+                            java.util.ArrayList.class, float.class, int.class),
+                    "hyperduo-tint-global", new XposedInterface.Hooker() {
+                        @Override
+                        public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                            final Object result = chain.proceed();
+                            final Object tint = chain.getArg(2);
+                            if (tint instanceof Integer && (Integer) tint != 0) {
+                                sBarInk = (Integer) tint;
+                            }
+                            return result;
+                        }
+                    });
+        }
         n += hook(module, Refl.method(icon, "onDarkChanged",
                         java.util.ArrayList.class, float.class, int.class),
                 "hyperduo-tint-dark", hooker);
