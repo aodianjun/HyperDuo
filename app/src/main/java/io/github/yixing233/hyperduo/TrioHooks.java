@@ -2184,11 +2184,17 @@ final class TrioHooks {
             } catch (Throwable ignored) {
                 // never let one child abort the pass
             }
-            // Also take it out of drawing, but only once: if MIUI re-shows the
-            // child on a later pass, flipping visibility back and forth would
-            // schedule a new layout every frame. The zero-size layout above has
-            // already made it invisible, so a single GONE is enough.
-            if (child.getVisibility() != View.GONE && markCollapsed(child)) {
+            // Also take it out of drawing. This has to be re-applied on every
+            // pass, not once: gating it on markCollapsed meant the GONE was
+            // applied the first time only, while MIUI keeps putting the child
+            // back on its own schedule - the log shows a mobile view at v=8
+            // and then at v=0 w=56 a few passes later, which is a signal
+            // indicator that came back and stayed. The mark is bookkeeping for
+            // restoreNative, so it is recorded here rather than used as a
+            // condition; setVisibility is already a no-op once the child is
+            // GONE, so re-applying it cannot schedule extra layouts.
+            if (child.getVisibility() != View.GONE) {
+                markCollapsed(child);
                 try {
                     child.setVisibility(View.GONE);
                 } catch (Throwable ignored) {
