@@ -338,6 +338,8 @@ final class TrioHooks {
         hooked += group(module, cl, 14);
         hooked += group(module, cl, 15);
         hooked += group(module, cl, 16);
+        hooked += group(module, cl, 17);
+        hooked += group(module, cl, 18);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -707,6 +709,8 @@ final class TrioHooks {
                 case 14: return hookOverviewProgress(module, cl);
                 case 15: return hookLaunchAnimation(module, cl);
                 case 16: return hookIconTint(module, cl);
+                case 17: return hookKeyguardBar(module, cl);
+                case 18: return hookIconAdded(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -1821,6 +1825,215 @@ final class TrioHooks {
         return n;
     }
 
+    /**
+     * Folds the keyguard row's icons when that row attaches.
+     *
+     * <p>{@link #refoldContainers()} runs on a config change and on an island
+     * change, and the keyguard row's container reaches {@link #settle} down the
+     * layout path only while it is still laying out. A row that attaches after
+     * that - which is what a SystemUI restart with the lock screen already up
+     * produces - keeps its native icons until something else happens to fold it,
+     * and nothing else necessarily does. That is the shape of the report where
+     * restarting SystemUI a few times makes the lock screen come good.
+     *
+     * <p>Attaching is the one moment that always happens for the row, so the fold
+     * is asked for there. The layout path and the draw pass keep their own
+     * attempts; all three end in the same idempotent call.
+     */
+    private static int hookKeyguardBar(XposedModule module, ClassLoader cl) {
+        final Class<?> bar = Refl.cls(
+                "com.android.systemui.statusbar.phone.MiuiKeyguardStatusBarView", cl);
+        if (bar == null) {
+            log(module, "MiuiKeyguardStatusBarView missing");
+            return 0;
+        }
+        final XposedInterface.Hooker hooker = new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                final Object result = chain.proceed();
+                final Object self = chain.getThisObject();
+                if (!(self instanceof View)) {
+                    return result;
+                }
+                final View row = (View) self;
+                // Posted, not run here: the row's icons are inflated as part of
+                // attaching, and naming slots before that would name them to a
+                // controller that has nothing to refresh yet.
+                row.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        // MIUI re-lays the row's icons out after it attaches, and a
+                        // GONE plus a zero-size layout does not survive that: the log
+                        // shows the mobile views folded (v=8, w=0) and then back
+                        // (v=0, w=56) a moment later. The row's own ignore list is
+                        // what MIUI consults when it lays them out, so the slots this
+                        // module draws itself are named there.
+                        blockIcons(row);
+                        foldContainers(row);
+                    }
+                });
+                return result;
+            }
+        };
+        // initCallback is the one that matters, and it is later than it looks:
+        // onAttachedToWindow only calls super and then hands the real work to
+        // initCallback, which is also reached from setDependency. It is the
+        // method that finishes configuring the row - setNeedLimitIcon(true),
+        // setAnimatorController - and that configuration is what undoes a fold
+        // made while attaching, which is how the mobile views came back at
+        // v=0 w=56 after being folded to v=8 w=0. Folding after initCallback
+        // is what survives.
+        //
+        // The View entry points are kept as well: on some builds initCallback
+        // is absent and attaching is the only moment the row is complete.
+        int n = hook(module, Refl.method(bar, "initCallback", String.class),
+                "hyperduo-keyguard-init", hooker);
+        n += hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
+                "hyperduo-keyguard-bar", hooker);
+        n += hook(module, Refl.method(bar, "onAttachedToWindow"),
+                "hyperduo-keyguard-attach", hooker);
+        if (n == 0) {
+            log(module, "no keyguard row attach hook");
+        }
+        return n;
+    }
+
+    /**
+     * Names the slots this module draws itself in MIUI's own ignore list for the
+     * keyguard row, and asks the row to re-run its layout.
+     *
+     * <p>This is the part that survives: MIUI lays the row's icons out again after
+     * the row attaches, and it skips exactly the slots on this list. Folding them
+     * after the fact is what the log shows being undone.
+     */
+    private static void blockIcons(Object bar) {
+        try {
+            final Object manager = Refl.get(Refl.field(bar.getClass(), "mTintedIconManager"), bar);
+            if (manager == null) {
+                log(sModule, "keyguard: no tinted icon manager");
+                return;
+            }
+            final List<String> wanted = new ArrayList<String>(foldedSlots());
+            // IconManager.setBlockList(List) clears the list, fills it and calls
+            // refreshIconGroup in one go, and refreshIconGroup is what makes MIUI
+            // lay the row's icons out again without the named slots. Writing the
+            // list by hand and asking for the refresh separately does not work:
+            // both the list and the controller that would be asked are on
+            // IconManager, one level up from the manager the row holds.
+            final Method[] methods = manager.getClass().getMethods();
+            for (int i = 0; i < methods.length; i++) {
+                final Method m = methods[i];
+                if ("setBlockList".equals(m.getName()) && m.getParameterTypes().length == 1) {
+                    m.invoke(manager, wanted);
+                    log(sModule, "keyguard block list set: " + wanted);
+                    return;
+                }
+            }
+            log(sModule, "keyguard: setBlockList missing");
+        } catch (Throwable t) {
+            log(sModule, "keyguard block list failed: " + t);
+        }
+    }
+
+    /**
+     * Hides a replaced icon the moment MIUI adds it, wherever it is added.
+     *
+     * <p>{@code IconManager.addHolder} is the one place every status icon is
+     * mounted, old pipeline and new: it builds the view and adds it to the group
+     * in the same call. That makes it the only point where hiding an icon cannot
+     * be undone - MIUI is not restoring anything, it is adding it again, and this
+     * runs on every addition.
+     *
+     * <p>It is also where the module's own block list falls short on this build:
+     * the blocked flag {@code addHolder} computes is passed to the old-pipeline
+     * view and to the network-speed view, but the modern mobile and wifi views are
+     * constructed without it, which is why naming the slots in MIUI's list left
+     * the lock screen's signal icons on screen.
+     */
+    private static int hookIconAdded(XposedModule module, ClassLoader cl) {
+        final Class<?> manager = Refl.cls(
+                "com.android.systemui.statusbar.phone.ui.IconManager", cl);
+        if (manager == null) {
+            log(module, "IconManager missing");
+            return 0;
+        }
+        final Method[] methods = manager.getDeclaredMethods();
+        int n = 0;
+        for (int i = 0; i < methods.length; i++) {
+            final Method m = methods[i];
+            if (!"addHolder".equals(m.getName()) || m.getParameterTypes().length != 4) {
+                continue;
+            }
+            n += hook(module, m, "hyperduo-icon-added", new XposedInterface.Hooker() {
+                @Override
+                public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                    final Object result = chain.proceed();
+                    final Object slot = chain.getArg(1);
+                    if (result instanceof View && slot instanceof String
+                            && foldedSlots().contains(slot)) {
+                        hideIcon((View) result);
+                    }
+                    return result;
+                }
+            });
+        }
+        if (n == 0) {
+            log(module, "no addHolder hook");
+        }
+        return n;
+    }
+
+    /**
+     * Takes an icon out of the layout and out of drawing.
+     *
+     * <p>Two ways, because there are two pipelines. The old one has already been
+     * laid out by the time this runs, so it needs the zero-size layout and the
+     * GONE - the same pair settle() uses. The new one asks
+     * {@code ModernStatusBarView.isIconVisible()}, which is driven by the binding
+     * and by {@code setVisibleState}, and never by {@code View.getVisibility()}:
+     * a GONE there changes nothing, and MIUI restores the state on its own
+     * schedule, which is what kept putting the lock screen's signal icons back.
+     */
+    private static void hideIcon(final View icon) {
+        try {
+            icon.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (icon.getWidth() != 0 || icon.getHeight() != 0) {
+                            icon.layout(0, 0, 0, 0);
+                        }
+                        icon.setVisibility(View.GONE);
+                    } catch (Throwable ignored) {
+                        // never let one icon abort the pass
+                    }
+                    try {
+                        final Method state = icon.getClass()
+                                .getMethod("setVisibleState", int.class, boolean.class);
+                        state.invoke(icon, Integer.valueOf(0), Boolean.TRUE);
+                    } catch (Throwable ignored) {
+                        // the old pipeline views have no such method
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+            // posting is best-effort; the fold path still runs on layout
+        }
+    }
+
+    /** Folds every icon container inside {@code view}. */
+    private static void foldContainers(View view) {
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            if (sIconContainerClass != null && sIconContainerClass.isInstance(group)) {
+                foldAndSettle(group);
+            }
+            for (int i = 0; i < group.getChildCount(); i++) {
+                foldContainers(group.getChildAt(i));
+            }
+        }
+    }
+
     /** True when {@code view} sits inside the keyguard's own status bar row. */
     private static boolean isKeyguardRow(View view) {
         for (ViewParent p = view.getParent(); p != null;
@@ -1971,11 +2184,17 @@ final class TrioHooks {
             } catch (Throwable ignored) {
                 // never let one child abort the pass
             }
-            // Also take it out of drawing, but only once: if MIUI re-shows the
-            // child on a later pass, flipping visibility back and forth would
-            // schedule a new layout every frame. The zero-size layout above has
-            // already made it invisible, so a single GONE is enough.
-            if (child.getVisibility() != View.GONE && markCollapsed(child)) {
+            // Also take it out of drawing. This has to be re-applied on every
+            // pass, not once: gating it on markCollapsed meant the GONE was
+            // applied the first time only, while MIUI keeps putting the child
+            // back on its own schedule - the log shows a mobile view at v=8
+            // and then at v=0 w=56 a few passes later, which is a signal
+            // indicator that came back and stayed. The mark is bookkeeping for
+            // restoreNative, so it is recorded here rather than used as a
+            // condition; setVisibility is already a no-op once the child is
+            // GONE, so re-applying it cannot schedule extra layouts.
+            if (child.getVisibility() != View.GONE) {
+                markCollapsed(child);
                 try {
                     child.setVisibility(View.GONE);
                 } catch (Throwable ignored) {
