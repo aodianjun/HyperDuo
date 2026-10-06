@@ -2205,6 +2205,30 @@ final class TrioHooks {
         if (relayout) {
             container.requestLayout();
         }
+        // Diagnostic: the pass above runs before this, so what settle leaves
+        // behind is only visible if it is printed here. Without it the only
+        // snapshot is diagnose's, taken before the loop, which cannot tell a
+        // fold that worked from one MIUI undid a moment later.
+        {
+            final StringBuilder after = new StringBuilder();
+            after.append("settled ").append(container.getClass().getSimpleName());
+            after.append(" at ").append(container.getLeft()).append(',').append(container.getTop());
+            after.append(" owned=").append(owned).append(" wanted=").append(wanted);
+            for (int i = 0; i < count; i++) {
+                final View c = container.getChildAt(i);
+                if (c == null) {
+                    continue;
+                }
+                final String sl = slotOf(c);
+                if (sl == null || !MANAGED_SLOTS.contains(sl)) {
+                    continue;
+                }
+                after.append(" | ").append(sl).append(" w=").append(c.getWidth())
+                        .append(" v=").append(c.getVisibility());
+            }
+            log(sModule, after.toString());
+        }
+        }
         suppressNativeTypeViews(container);
     }
 
