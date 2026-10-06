@@ -450,13 +450,10 @@ public final class Prefs {
     /**
      * Font size of the network type outside the ring, in density pixels.
      *
-     * <p>11dp reproduces the retired raw-pixel default of 32 on the density-3
-     * device it was authored on (32 &divide; 3 = 10.67, rounded) and is the value
-     * every fresh install starts from. MIUI's own status-bar type text measures
-     * about 7.2dp on that device, so 11 keeps the module's label the larger of
-     * the two, as shipped.
+     * <p>14dp is the default (about 42px on density 3), clearly visible and
+     * proportionate to the battery icon and status bar text.
      */
-    public static final int DEF_OUT_TYPE_SIZE_DP = 11;
+    public static final int DEF_OUT_TYPE_SIZE_DP = 14;
     /**
      * The stacked out-of-ring signal's height, in density pixels.
      *
@@ -517,15 +514,15 @@ public final class Prefs {
     /**
      * The span the out-of-ring type size offers, in density pixels.
      *
-     * <p>6dp is where the label stops reading as text at status-bar sizes
-     * (MIUI's own type text is about 7.2dp); 22dp matches the tallest the
-     * reading itself goes (20dp) with a little headroom, past which the label
-     * starts pushing the icons around it. The retired pixel range 16..64 maps
-     * to 5.3..21.3dp on the density-3 device it was authored on, so the dp
-     * range covers the same physical span.
+     * <p>8..26dp, cleanly covering everything from the stock ~7.2dp label up to
+     * a prominent label without overflowing the status bar row. Default is 14dp
+     * (~42px at density 3). The 40..80dp range this briefly held was a
+     * misreading of the size report - what the user was seeing was the label
+     * drawn through the bars, not a label that was too small - so it is back to
+     * a span that keeps the label inside the row.
      */
-    public static final int MIN_OUT_TYPE_SIZE_DP = 6;
-    public static final int MAX_OUT_TYPE_SIZE_DP = 22;
+    public static final int MIN_OUT_TYPE_SIZE_DP = 8;
+    public static final int MAX_OUT_TYPE_SIZE_DP = 26;
     /**
      * The physical span the slider offers, in density pixels: 6dp (18px at
      * density 3) is where the four bars stop being distinguishable, and 20dp

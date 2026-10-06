@@ -265,6 +265,7 @@ final class TrioState {
         try {
             final Context app = context.getApplicationContext();
             sContext = (app != null) ? app : context;
+            WifiPresence.start(sContext);
         } catch (Throwable ignored) {
             // leave it null; the reading stays on the single-row fallback
         }
@@ -427,7 +428,17 @@ final class TrioState {
         // has gone black), and the icons keep their last colour once they are
         // hidden by this module (they still say "black" on a dark launcher).
         // Whichever changed more recently is the one that saw the change.
-        int c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        // The colour SystemUI last painted its own icons in comes first: it is
+        // the colour the user is looking at, and it arrives as the change lands
+        // rather than after it. The fields stay as the fallback.
+        // This host's own row, not one global cell. Several rows are on screen
+        // and they are tinted to opposite colours in the same frame, so a shared
+        // cell hands whichever was tinted last to all of them and every glyph
+        // comes out the opposite colour to the icons beside it.
+        int c = TrioHooks.rowInk(TrioHooks.rowOf(host));
+        if (c == 0) {
+            c = useTint ? tintColor : (darkIntensity > 0f ? darkColor : lightColor);
+        }
         if (c == 0) {
             c = nightMode() ? 0xFFFFFFFF : DEFAULT_FOREGROUND;
         }
@@ -503,6 +514,7 @@ final class TrioState {
      * change lets the caller redraw only on the edge, not on every layout pass.
      */
     static boolean setWifiPresent(boolean present) {
+        present = WifiPresence.resolve(present, -1);
         if (sWifiPresent == present) {
             return false;
         }

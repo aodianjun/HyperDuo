@@ -182,7 +182,7 @@ public final class TrioSettings {
         s.valueSize = Prefs.DEF_VALUE_SIZE;
         s.valueWeight = Prefs.DEF_VALUE_WEIGHT;
         s.typeSize = Prefs.DEF_TYPE_SIZE;
-        s.outTypeSize = Prefs.DEF_OUT_TYPE_SIZE;
+        s.outTypeSize = Prefs.DEF_OUT_TYPE_SIZE_DP;
         s.outSignalSize = Prefs.DEF_OUT_SIGNAL_SIZE;
         s.outTypeMarginLeft = Prefs.DEF_OUT_TYPE_MARGIN_LEFT;
         s.outTypeMarginRight = Prefs.DEF_OUT_TYPE_MARGIN_RIGHT;
@@ -316,15 +316,14 @@ public final class TrioSettings {
      * it - one that may hold a raw-pixel value in {@link Prefs#KEY_OUT_TYPE_SIZE}
      * - has that value converted once, by dividing by the display density that
      * gives the pixels their physical size. An install that never touched the
-     * old slider has no old key at all and simply gets the new default, which is
-     * the old default's physical size at the density it was authored on. The old
+     * old slider has no old key at all and simply gets the dp default. The old
      * key is never written again, so like
      * {@link #readMobileTypeMode(SharedPreferences)} this runs at most until the
      * user's first write of the new key.
      *
-     * <p>The conversion rounds before clamping so a user's tuned value lands
-     * exactly where it did: 32px at density 3 reads as 11dp, inside the new
-     * range with room on both sides.
+     * <p>The conversion rounds before clamping so a user's tuned value lands as
+     * close as the new range allows: 32px at density 3 reads as 11dp, which the
+     * 8..26dp range holds unchanged.
      */
     private static int readOutTypeSize(SharedPreferences p, float density) {
         if (p.contains(Prefs.KEY_OUT_TYPE_SIZE_DP)) {
@@ -339,7 +338,10 @@ public final class TrioSettings {
                             / safeDensity),
                     Prefs.MIN_OUT_TYPE_SIZE_DP, Prefs.MAX_OUT_TYPE_SIZE_DP);
         }
-        return Prefs.DEF_OUT_TYPE_SIZE_DP;
+        // Neither key present: the user never touched this slider. Fall back
+        // to the 14dp default.
+        return Prefs.clamp(Prefs.DEF_OUT_TYPE_SIZE_DP,
+                Prefs.MIN_OUT_TYPE_SIZE_DP, Prefs.MAX_OUT_TYPE_SIZE_DP);
     }
 
     /**

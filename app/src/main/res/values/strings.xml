@@ -104,7 +104,7 @@
     <string name="type_size_summary">圆环中间 3G/4G/5G 等文字的大小。</string>
 
     <string name="out_type_size_title">环外网络类型字号</string>
-    <string name="out_type_size_summary">状态栏中环外 3G/4G/5G 等文字的大小，单位为 dp（会随屏幕密度自动换算成像素），可调范围 6–22dp。这个标签由系统状态栏绘制，设置页里的预览格是它唯一的所见即所得参照。</string>
+    <string name="out_type_size_summary">状态栏中环外 3G/4G/5G 等文字的大小，单位为 dp（会随屏幕密度自动换算成像素），默认 14dp，可调范围 8–26dp。这个标签由系统状态栏绘制，设置页里的预览格是它唯一的所见即所得参照。</string>
 
     <string name="out_type_margin_left_title">环外类型左边距</string>
     <string name="out_type_margin_left_summary">环外网络类型标签与其外侧（背对电池的一侧）之间的空隙，单位为 dp。默认 2dp，可调范围 0–16dp。RTL 语言下整行镜像，这条边距会跟着翻到另一侧。</string>

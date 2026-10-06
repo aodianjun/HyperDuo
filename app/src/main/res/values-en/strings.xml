@@ -104,7 +104,7 @@
     <string name="type_size_summary">Font size of the 3G/4G/5G label in the ring centre.</string>
 
     <string name="out_type_size_title">Out-of-ring type size</string>
-    <string name="out_type_size_summary">Font size of the 3G/4G/5G label shown outside the ring, in the status bar, in dp so it converts itself to pixels on any screen density; the slider covers 6–22dp. That label is drawn by the status bar itself, so the matching preview cell here is the only place its size is visible.</string>
+    <string name="out_type_size_summary">Font size of the 3G/4G/5G label shown outside the ring, in the status bar, in dp so it converts itself to pixels on any screen density; the default is 14dp and the slider covers 8–26dp. That label is drawn by the status bar itself, so the matching preview cell here is the only place its size is visible.</string>
 
     <string name="out_type_margin_left_title">Out-of-ring type margin, left</string>
     <string name="out_type_margin_left_summary">The gap between the out-of-ring network type label and its outer side - the one facing away from the battery - in dp. The default is 2dp and the slider covers 0–16dp. Under an RTL language the whole row mirrors and this margin moves to the other side with it.</string>
