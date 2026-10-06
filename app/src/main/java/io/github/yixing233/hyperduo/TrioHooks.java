@@ -1973,7 +1973,17 @@ final class TrioHooks {
         return n;
     }
 
-    /** Takes an icon out of the layout and out of drawing, the way settle() does. */
+    /**
+     * Takes an icon out of the layout and out of drawing.
+     *
+     * <p>Two ways, because there are two pipelines. The old one has already been
+     * laid out by the time this runs, so it needs the zero-size layout and the
+     * GONE - the same pair settle() uses. The new one asks
+     * {@code ModernStatusBarView.isIconVisible()}, which is driven by the binding
+     * and by {@code setVisibleState}, and never by {@code View.getVisibility()}:
+     * a GONE there changes nothing, and MIUI restores the state on its own
+     * schedule, which is what kept putting the lock screen's signal icons back.
+     */
     private static void hideIcon(final View icon) {
         try {
             icon.post(new Runnable() {
@@ -1986,6 +1996,13 @@ final class TrioHooks {
                         icon.setVisibility(View.GONE);
                     } catch (Throwable ignored) {
                         // never let one icon abort the pass
+                    }
+                    try {
+                        final Method state = icon.getClass()
+                                .getMethod("setVisibleState", int.class, boolean.class);
+                        state.invoke(icon, Integer.valueOf(0), Boolean.TRUE);
+                    } catch (Throwable ignored) {
+                        // the old pipeline views have no such method
                     }
                 }
             });
