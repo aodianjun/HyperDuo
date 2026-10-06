@@ -339,6 +339,7 @@ final class TrioHooks {
         hooked += group(module, cl, 15);
         hooked += group(module, cl, 16);
         hooked += group(module, cl, 17);
+        hooked += group(module, cl, 18);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -709,6 +710,7 @@ final class TrioHooks {
                 case 15: return hookLaunchAnimation(module, cl);
                 case 16: return hookIconTint(module, cl);
                 case 17: return hookKeyguardBar(module, cl);
+                case 18: return hookIconAdded(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -1920,6 +1922,75 @@ final class TrioHooks {
             log(sModule, "keyguard: setBlockList missing");
         } catch (Throwable t) {
             log(sModule, "keyguard block list failed: " + t);
+        }
+    }
+
+    /**
+     * Hides a replaced icon the moment MIUI adds it, wherever it is added.
+     *
+     * <p>{@code IconManager.addHolder} is the one place every status icon is
+     * mounted, old pipeline and new: it builds the view and adds it to the group
+     * in the same call. That makes it the only point where hiding an icon cannot
+     * be undone - MIUI is not restoring anything, it is adding it again, and this
+     * runs on every addition.
+     *
+     * <p>It is also where the module's own block list falls short on this build:
+     * the blocked flag {@code addHolder} computes is passed to the old-pipeline
+     * view and to the network-speed view, but the modern mobile and wifi views are
+     * constructed without it, which is why naming the slots in MIUI's list left
+     * the lock screen's signal icons on screen.
+     */
+    private static int hookIconAdded(XposedModule module, ClassLoader cl) {
+        final Class<?> manager = Refl.cls(
+                "com.android.systemui.statusbar.phone.ui.IconManager", cl);
+        if (manager == null) {
+            log(module, "IconManager missing");
+            return 0;
+        }
+        final Method[] methods = manager.getDeclaredMethods();
+        int n = 0;
+        for (int i = 0; i < methods.length; i++) {
+            final Method m = methods[i];
+            if (!"addHolder".equals(m.getName()) || m.getParameterTypes().length != 4) {
+                continue;
+            }
+            n += hook(module, m, "hyperduo-icon-added", new XposedInterface.Hooker() {
+                @Override
+                public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                    final Object result = chain.proceed();
+                    final Object slot = chain.getArg(1);
+                    if (result instanceof View && slot instanceof String
+                            && foldedSlots().contains(slot)) {
+                        hideIcon((View) result);
+                    }
+                    return result;
+                }
+            });
+        }
+        if (n == 0) {
+            log(module, "no addHolder hook");
+        }
+        return n;
+    }
+
+    /** Takes an icon out of the layout and out of drawing, the way settle() does. */
+    private static void hideIcon(final View icon) {
+        try {
+            icon.post(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        if (icon.getWidth() != 0 || icon.getHeight() != 0) {
+                            icon.layout(0, 0, 0, 0);
+                        }
+                        icon.setVisibility(View.GONE);
+                    } catch (Throwable ignored) {
+                        // never let one icon abort the pass
+                    }
+                }
+            });
+        } catch (Throwable ignored) {
+            // posting is best-effort; the fold path still runs on layout
         }
     }
 
