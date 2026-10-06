@@ -338,6 +338,7 @@ final class TrioHooks {
         hooked += group(module, cl, 14);
         hooked += group(module, cl, 15);
         hooked += group(module, cl, 16);
+        hooked += group(module, cl, 17);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -707,6 +708,7 @@ final class TrioHooks {
                 case 14: return hookOverviewProgress(module, cl);
                 case 15: return hookLaunchAnimation(module, cl);
                 case 16: return hookIconTint(module, cl);
+                case 17: return hookKeyguardBar(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -1819,6 +1821,55 @@ final class TrioHooks {
             log(module, "no icon tint hook");
         }
         return n;
+    }
+
+    /**
+     * Folds the keyguard row's icons when that row attaches.
+     *
+     * <p>{@link #refoldContainers()} runs on a config change and on an island
+     * change, and the keyguard row's container reaches {@link #settle} down the
+     * layout path only while it is still laying out. A row that attaches after
+     * that - which is what a SystemUI restart with the lock screen already up
+     * produces - keeps its native icons until something else happens to fold it,
+     * and nothing else necessarily does. That is the shape of the report where
+     * restarting SystemUI a few times makes the lock screen come good.
+     *
+     * <p>Attaching is the one moment that always happens for the row, so the fold
+     * is asked for there. The layout path and the draw pass keep their own
+     * attempts; all three end in the same idempotent call.
+     */
+    private static int hookKeyguardBar(XposedModule module, ClassLoader cl) {
+        final Class<?> bar = Refl.cls(
+                "com.android.systemui.statusbar.phone.MiuiKeyguardStatusBarView", cl);
+        if (bar == null) {
+            log(module, "MiuiKeyguardStatusBarView missing");
+            return 0;
+        }
+        return hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
+                "hyperduo-keyguard-bar", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object self = chain.getThisObject();
+                        if (self instanceof View) {
+                            foldContainers((View) self);
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /** Folds every icon container inside {@code view}. */
+    private static void foldContainers(View view) {
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            if (sIconContainerClass != null && sIconContainerClass.isInstance(group)) {
+                foldAndSettle(group);
+            }
+            for (int i = 0; i < group.getChildCount(); i++) {
+                foldContainers(group.getChildAt(i));
+            }
+        }
     }
 
     /** True when {@code view} sits inside the keyguard's own status bar row. */
