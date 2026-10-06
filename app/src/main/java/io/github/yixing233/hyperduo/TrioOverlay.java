@@ -684,22 +684,44 @@ final class TrioOverlay {
     }
 
     /**
-     * {@code TYPE_STATUS_BAR_ADDITIONAL} is a hidden constant, so it is read
-     * reflectively and cached. The bar's own type cannot be used: the platform
-     * allows only one window of it, and the bar already owns it.
+     * The window type, read reflectively because both candidates are hidden
+     * constants. The bar's own type cannot be used: the platform allows only
+     * one window of it, and the bar already owns it.
      *
-     * <p>The fallback is the public overlay type, which needs no windowing
-     * permission the system UI does not already hold.
+     * <p>MIUI keeps a second status bar window - {@code StatusBar1},
+     * {@code (0,0)(fillx121)} - which covers the whole bar and sits at the same
+     * base layer ({@code 161000}) as {@code TYPE_STATUS_BAR_ADDITIONAL}. Same
+     * layer means the window added later wins, and StatusBar1 is re-added on
+     * config changes and on a SystemUI restart, so a glyph window of that type
+     * ends up underneath it: the window is visible and reports
+     * {@code HAS_DRAWN}, and the status bar simply paints over it. The glyph is
+     * switched on and drawn, and it is not on screen - which is what made the
+     * switch look like it had not been applied.
+     *
+     * <p>{@code TYPE_STATUS_BAR_SUB_PANEL} is ordered above the bar's own
+     * windows - the notification modal window in the same process uses it and
+     * lands higher - so the glyph is not covered whichever order the bar's
+     * windows happened to be added in. It is tried first;
+     * {@code TYPE_STATUS_BAR_ADDITIONAL} stays as the fallback. Both are
+     * status-bar-owned types, so neither needs a windowing permission the
+     * system UI does not already hold.
      */
     private static int windowType() {
         if (sWindowType == 0) {
             int type = TYPE_FALLBACK;
+            // Tried in this order on purpose - see the note above.
             try {
                 final Field field = WindowManager.LayoutParams.class
-                        .getField("TYPE_STATUS_BAR_ADDITIONAL");
+                        .getField("TYPE_STATUS_BAR_SUB_PANEL");
                 type = field.getInt(null);
             } catch (Throwable ignored) {
-                // Older platform: the public overlay type is close enough.
+                try {
+                    final Field field = WindowManager.LayoutParams.class
+                            .getField("TYPE_STATUS_BAR_ADDITIONAL");
+                    type = field.getInt(null);
+                } catch (Throwable ignored2) {
+                    // Older platform: the public overlay type is close enough.
+                }
             }
             sWindowType = type;
         }
