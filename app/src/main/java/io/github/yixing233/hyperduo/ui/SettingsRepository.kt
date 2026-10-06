@@ -41,10 +41,7 @@ class SettingsRepository(context: Context) {
         appContext.getSharedPreferences(Prefs.NAME, Context.MODE_PRIVATE)
 
     /** The current values, as the preview should render them. */
-    fun read(): TrioSettings = TrioSettings.from(preferences(), density).also {
-        Log.i(TAG, "DIAG read() overlayGlyph=" + it.overlayGlyph
-                + " enabled=" + it.enabled + " wifi=" + it.showWifi)
-    }
+    fun read(): TrioSettings = TrioSettings.from(preferences(), density)
 
     // ------------------------------------------------------------- appearance
 
@@ -176,12 +173,8 @@ class SettingsRepository(context: Context) {
 
     private fun writeBoolean(key: String, value: Boolean) {
         preferences().edit(commit = true) { putBoolean(key, value) }
-        val readBack = preferences().getBoolean(key, !value)
-        Log.i(TAG, "DIAG writeBoolean $key -> $value (readBack=$readBack)")
         push { it.putBoolean(key, value) }
         notifyModule()
-        Log.i(TAG, "DIAG afterNotify $key (readBack now="
-                + preferences().getBoolean(key, !value) + ")")
     }
 
     private fun writeInt(key: String, value: Int) {
