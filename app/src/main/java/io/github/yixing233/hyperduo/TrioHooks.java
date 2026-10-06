@@ -1851,12 +1851,67 @@ final class TrioHooks {
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         final Object result = chain.proceed();
                         final Object self = chain.getThisObject();
+                        // MIUI re-lays the row's icons out after this point, and a
+                        // GONE plus a zero-size layout does not survive that: the
+                        // log shows the mobile views folded (v=8, w=0) and then back
+                        // (v=0, w=56) a moment later. The row's own ignore list is
+                        // what MIUI consults when it lays them out, so the slots this
+                        // module draws itself are named there.
+                        blockIcons(self);
                         if (self instanceof View) {
                             foldContainers((View) self);
                         }
                         return result;
                     }
                 });
+    }
+
+    /**
+     * Names the slots this module draws itself in MIUI's own ignore list for the
+     * keyguard row, and asks the row to re-run its layout.
+     *
+     * <p>This is the part that survives: MIUI lays the row's icons out again after
+     * the row attaches, and it skips exactly the slots on this list. Folding them
+     * after the fact is what the log shows being undone.
+     */
+    private static void blockIcons(Object bar) {
+        try {
+            final Object manager = Refl.get(Refl.field(bar.getClass(), "mTintedIconManager"), bar);
+            if (manager == null) {
+                log(sModule, "keyguard: no tinted icon manager");
+                return;
+            }
+            final Object raw = Refl.get(Refl.field(manager.getClass(), "mBlockList"), manager);
+            if (!(raw instanceof List)) {
+                log(sModule, "keyguard: no block list");
+                return;
+            }
+            final List<Object> block = (List<Object>) raw;
+            final List<String> wanted = foldedSlots();
+            boolean added = false;
+            for (int i = 0; i < wanted.size(); i++) {
+                final String slot = wanted.get(i);
+                if (!block.contains(slot)) {
+                    block.add(slot);
+                    added = true;
+                }
+            }
+            log(sModule, "keyguard block list: " + block + " (added=" + added + ")");
+            final Object controller = Refl.get(Refl.field(manager.getClass(), "mController"), manager);
+            if (controller == null) {
+                return;
+            }
+            final Method[] methods = controller.getClass().getMethods();
+            for (int i = 0; i < methods.length; i++) {
+                if ("refreshIconGroup".equals(methods[i].getName())
+                        && methods[i].getParameterTypes().length == 1) {
+                    methods[i].invoke(controller, manager);
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            log(sModule, "keyguard block list failed: " + t);
+        }
     }
 
     /** Folds every icon container inside {@code view}. */
