@@ -21,6 +21,7 @@ final class WifiPresence {
     private static volatile Boolean connected;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static Runnable pendingRefresh;
+    private static boolean watchdogStarted;
 
     private WifiPresence() {}
 
@@ -30,6 +31,18 @@ final class WifiPresence {
     }
 
     static synchronized void start(final Context context) {
+        if (!watchdogStarted) {
+            watchdogStarted = true;
+            // ROM broadcast/callback delivery is not always reliable. A bounded
+            // low-frequency recheck also recovers from transient query failures;
+            // never put framework IPC in the per-frame drawing path.
+            MAIN.post(new Runnable() {
+                @Override public void run() {
+                    refresh(context);
+                    MAIN.postDelayed(this, 3000L);
+                }
+            });
+        }
         if (registered) return;
         final IntentFilter filter = new IntentFilter();
         filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
@@ -45,7 +58,11 @@ final class WifiPresence {
         };
         try {
             if (Build.VERSION.SDK_INT >= 33) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+                // Wi-Fi broadcasts can originate from the privileged Wi-Fi UID,
+                // not the system UID. NOT_EXPORTED drops those deliveries.
+                // These framework actions are protected broadcasts; always query
+                // framework state instead of accepting sender-controlled extras.
+                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED);
             } else {
                 context.registerReceiver(receiver, filter);
             }
@@ -86,17 +103,23 @@ final class WifiPresence {
     private static void refresh(Context context) {
         try {
             final WifiManager wifi = context.getSystemService(WifiManager.class);
-            final ConnectivityManager connectivity =
-                    context.getSystemService(ConnectivityManager.class);
             if (wifi == null) return;
             final boolean enabled = wifi.isWifiEnabled();
+            // A definitive radio-off result must not depend on a subsequent
+            // connectivity query (which may throw on a ROM/permission mismatch).
+            if (!enabled) {
+                publish(false);
+                return;
+            }
+            final ConnectivityManager connectivity =
+                    context.getSystemService(ConnectivityManager.class);
             // TYPE_WIFI observes Wi-Fi even when mobile/VPN is the default route.
             final NetworkInfo network = connectivity == null ? null
                     : connectivity.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
             if (enabled && connectivity == null) return;
             final boolean next = enabled && network != null && network.isConnected();
-            connected = Boolean.valueOf(next);
             final int before = TrioState.sWifiLevel;
+            publish(next);
             if (!next) {
                 TrioState.sWifiLevel = -1;
             } else {
@@ -106,10 +129,17 @@ final class WifiPresence {
                     TrioState.sWifiLevel = WifiManager.calculateSignalLevel(info.getRssi(), 5);
                 }
             }
-            final boolean changed = TrioState.setWifiPresent(next);
-            if (changed || before != TrioState.sWifiLevel) TrioHooks.invalidateHosts();
+            if (before != TrioState.sWifiLevel) TrioHooks.invalidateHosts();
         } catch (RuntimeException ignored) {
             // Permissions/ROM differences must not crash SystemUI.
         }
+    }
+
+    private static void publish(boolean next) {
+        connected = Boolean.valueOf(next);
+        final int before = TrioState.sWifiLevel;
+        if (!next) TrioState.sWifiLevel = -1;
+        final boolean changed = TrioState.setWifiPresent(next);
+        if (changed || before != TrioState.sWifiLevel) TrioHooks.invalidateHosts();
     }
 }
