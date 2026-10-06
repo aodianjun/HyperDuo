@@ -1845,25 +1845,45 @@ final class TrioHooks {
             log(module, "MiuiKeyguardStatusBarView missing");
             return 0;
         }
-        return hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
-                "hyperduo-keyguard-bar", new XposedInterface.Hooker() {
+        final XposedInterface.Hooker hooker = new XposedInterface.Hooker() {
+            @Override
+            public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                final Object result = chain.proceed();
+                final Object self = chain.getThisObject();
+                if (!(self instanceof View)) {
+                    return result;
+                }
+                final View row = (View) self;
+                // Posted, not run here: the row's icons are inflated as part of
+                // attaching, and naming slots before that would name them to a
+                // controller that has nothing to refresh yet.
+                row.post(new Runnable() {
                     @Override
-                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
-                        final Object result = chain.proceed();
-                        final Object self = chain.getThisObject();
-                        // MIUI re-lays the row's icons out after this point, and a
-                        // GONE plus a zero-size layout does not survive that: the
-                        // log shows the mobile views folded (v=8, w=0) and then back
+                    public void run() {
+                        // MIUI re-lays the row's icons out after it attaches, and a
+                        // GONE plus a zero-size layout does not survive that: the log
+                        // shows the mobile views folded (v=8, w=0) and then back
                         // (v=0, w=56) a moment later. The row's own ignore list is
                         // what MIUI consults when it lays them out, so the slots this
                         // module draws itself are named there.
-                        blockIcons(self);
-                        if (self instanceof View) {
-                            foldContainers((View) self);
-                        }
-                        return result;
+                        blockIcons(row);
+                        foldContainers(row);
                     }
                 });
+                return result;
+            }
+        };
+        // The MIUI-named entry point is not on every build - it is missing on the
+        // HyperOS 3 build this was checked against - so the View one is the
+        // fallback, and between them one is always there.
+        int n = hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
+                "hyperduo-keyguard-bar", hooker);
+        n += hook(module, Refl.method(bar, "onAttachedToWindow"),
+                "hyperduo-keyguard-attach", hooker);
+        if (n == 0) {
+            log(module, "no keyguard row attach hook");
+        }
+        return n;
     }
 
     /**
