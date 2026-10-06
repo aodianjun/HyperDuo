@@ -1875,10 +1875,20 @@ final class TrioHooks {
                 return result;
             }
         };
-        // The MIUI-named entry point is not on every build - it is missing on the
-        // HyperOS 3 build this was checked against - so the View one is the
-        // fallback, and between them one is always there.
-        int n = hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
+        // initCallback is the one that matters, and it is later than it looks:
+        // onAttachedToWindow only calls super and then hands the real work to
+        // initCallback, which is also reached from setDependency. It is the
+        // method that finishes configuring the row - setNeedLimitIcon(true),
+        // setAnimatorController - and that configuration is what undoes a fold
+        // made while attaching, which is how the mobile views came back at
+        // v=0 w=56 after being folded to v=8 w=0. Folding after initCallback
+        // is what survives.
+        //
+        // The View entry points are kept as well: on some builds initCallback
+        // is absent and attaching is the only moment the row is complete.
+        int n = hook(module, Refl.method(bar, "initCallback", String.class),
+                "hyperduo-keyguard-init", hooker);
+        n += hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
                 "hyperduo-keyguard-bar", hooker);
         n += hook(module, Refl.method(bar, "onAttachedToWindow"),
                 "hyperduo-keyguard-attach", hooker);
