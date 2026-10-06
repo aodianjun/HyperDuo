@@ -338,6 +338,7 @@ final class TrioHooks {
         hooked += group(module, cl, 14);
         hooked += group(module, cl, 15);
         hooked += group(module, cl, 16);
+        hooked += group(module, cl, 17);
         log(module, "HyperDuo installed, hooks=" + hooked
                 + " enabled=" + TrioConfig.get().enabled);
     }
@@ -702,6 +703,7 @@ final class TrioHooks {
                 case 14: return hookOverviewProgress(module, cl);
                 case 15: return hookLaunchAnimation(module, cl);
                 case 16: return hookIconTint(module, cl);
+                case 17: return hookKeyguardBar(module, cl);
                 default: return 0;
             }
         } catch (Throwable t) {
@@ -1733,6 +1735,50 @@ final class TrioHooks {
             }
         }
         return false;
+    }
+
+    /**
+     * Folds the icons of the keyguard's own row when that row is attached.
+     *
+     * <p>The row is a second instance of the same layout and it does not lay out
+     * again once it is up, so waiting for a layout pass is a race that the row
+     * sometimes wins - which is why the lock screen showed the native signal
+     * icons on some visits and not others. Attaching is the one moment that
+     * always happens, so the fold is asked for there; the draw pass keeps its
+     * own attempt as a fallback.
+     */
+    private static int hookKeyguardBar(XposedModule module, ClassLoader cl) {
+        final Class<?> bar = Refl.cls(
+                "com.android.systemui.statusbar.phone.MiuiKeyguardStatusBarView", cl);
+        if (bar == null) {
+            log(module, "MiuiKeyguardStatusBarView missing");
+            return 0;
+        }
+        return hook(module, Refl.method(bar, "miuiOnAttachedToWindow"),
+                "hyperduo-keyguard-bar", new XposedInterface.Hooker() {
+                    @Override
+                    public Object intercept(XposedInterface.Chain chain) throws Throwable {
+                        final Object result = chain.proceed();
+                        final Object self = chain.getThisObject();
+                        if (self instanceof View) {
+                            foldContainers((View) self);
+                        }
+                        return result;
+                    }
+                });
+    }
+
+    /** Folds every icon container inside {@code view}. */
+    private static void foldContainers(View view) {
+        if (view instanceof ViewGroup) {
+            final ViewGroup group = (ViewGroup) view;
+            if (sIconContainerClass != null && sIconContainerClass.isInstance(group)) {
+                settle(group);
+            }
+            for (int i = 0; i < group.getChildCount(); i++) {
+                foldContainers(group.getChildAt(i));
+            }
+        }
     }
 
     // ------------------------------------------------------------- registrations
