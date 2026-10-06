@@ -1901,34 +1901,23 @@ final class TrioHooks {
                 log(sModule, "keyguard: no tinted icon manager");
                 return;
             }
-            final Object raw = Refl.get(Refl.field(manager.getClass(), "mBlockList"), manager);
-            if (!(raw instanceof List)) {
-                log(sModule, "keyguard: no block list");
-                return;
-            }
-            final List<Object> block = (List<Object>) raw;
-            final List<String> wanted = foldedSlots();
-            boolean added = false;
-            for (int i = 0; i < wanted.size(); i++) {
-                final String slot = wanted.get(i);
-                if (!block.contains(slot)) {
-                    block.add(slot);
-                    added = true;
-                }
-            }
-            log(sModule, "keyguard block list: " + block + " (added=" + added + ")");
-            final Object controller = Refl.get(Refl.field(manager.getClass(), "mController"), manager);
-            if (controller == null) {
-                return;
-            }
-            final Method[] methods = controller.getClass().getMethods();
+            final List<String> wanted = new ArrayList<String>(foldedSlots());
+            // IconManager.setBlockList(List) clears the list, fills it and calls
+            // refreshIconGroup in one go, and refreshIconGroup is what makes MIUI
+            // lay the row's icons out again without the named slots. Writing the
+            // list by hand and asking for the refresh separately does not work:
+            // both the list and the controller that would be asked are on
+            // IconManager, one level up from the manager the row holds.
+            final Method[] methods = manager.getClass().getMethods();
             for (int i = 0; i < methods.length; i++) {
-                if ("refreshIconGroup".equals(methods[i].getName())
-                        && methods[i].getParameterTypes().length == 1) {
-                    methods[i].invoke(controller, manager);
-                    break;
+                final Method m = methods[i];
+                if ("setBlockList".equals(m.getName()) && m.getParameterTypes().length == 1) {
+                    m.invoke(manager, wanted);
+                    log(sModule, "keyguard block list set: " + wanted);
+                    return;
                 }
             }
+            log(sModule, "keyguard: setBlockList missing");
         } catch (Throwable t) {
             log(sModule, "keyguard block list failed: " + t);
         }
