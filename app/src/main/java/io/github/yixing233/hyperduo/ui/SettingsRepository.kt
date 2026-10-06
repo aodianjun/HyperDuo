@@ -173,8 +173,12 @@ class SettingsRepository(context: Context) {
 
     private fun writeBoolean(key: String, value: Boolean) {
         preferences().edit(commit = true) { putBoolean(key, value) }
+        val readBack = preferences().getBoolean(key, !value)
+        Log.i(TAG, "write $key -> $value (read back $readBack)")
         push { it.putBoolean(key, value) }
         notifyModule()
+        val after = TrioSettings.from(preferences())
+        Log.i(TAG, "after notify: overlayGlyph=${after.overlayGlyph} enabled=${after.enabled}")
     }
 
     private fun writeInt(key: String, value: Int) {
