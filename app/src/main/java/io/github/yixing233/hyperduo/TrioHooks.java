@@ -2228,7 +2228,6 @@ final class TrioHooks {
             }
             log(sModule, after.toString());
         }
-        }
         suppressNativeTypeViews(container);
     }
 
