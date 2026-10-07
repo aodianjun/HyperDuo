@@ -648,6 +648,16 @@ public final class TrioSettings {
                 && signalMode == s.signalMode
                 && stackedSignal == s.stackedSignal
                 && dataSimOnly == s.dataSimOnly
+                // Overlay decides where the glyph is drawn rather than what it
+                // draws, which is why it was easy to leave out - but it is a
+                // stored setting like any other, and leaving it out of equals
+                // is not harmless: the settings screen holds the snapshot in a
+                // mutableStateOf, whose default policy is equality, so a write
+                // that changed only this field compared equal to the previous
+                // snapshot, no recomposition was scheduled, and the switch went
+                // on showing its old state until some other write happened to
+                // recompose the row. issue 25.
+                && overlayGlyph == s.overlayGlyph
                 && roleColors == s.roleColors
                 && criticalOnDark == s.criticalOnDark
                 && criticalOnLight == s.criticalOnLight
