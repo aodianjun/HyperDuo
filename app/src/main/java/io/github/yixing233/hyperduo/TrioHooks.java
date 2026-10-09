@@ -301,6 +301,9 @@ final class TrioHooks {
     private static final Map<View, int[]> OUT_PAD_SAVED =
             Collections.synchronizedMap(new WeakHashMap<View, int[]>());
 
+    /** Bounded diagnostic counter for the overflow pass. */
+    private static int sHideDiag = 0;
+
     /** Hard cap on total child dumps, so a layout loop cannot flood the log. */
     private static volatile int sDiagDumps;
     /** Hard cap on container headers, including {@code owned} flips. */
@@ -3779,6 +3782,24 @@ final class TrioHooks {
             } catch (Throwable ignored) {
                 // never let one child abort the pass
             }
+        }
+        if (debugLog() && sHideDiag < 30) {
+            sHideDiag++;
+            final StringBuilder sb = new StringBuilder();
+            sb.append("hide: w=").append(container.getWidth())
+                    .append(" reserve=").append(reserve)
+                    .append(" limit=").append(container.getWidth() - reserve);
+            for (int i = 0; i < children.size(); i++) {
+                final View c = children.get(i);
+                sb.append(" | ").append(c.getClass().getSimpleName())
+                        .append(" slot=").append(slotOf(c))
+                        .append(" l=").append(c.getLeft())
+                        .append(" r=").append(c.getRight())
+                        .append(" tx=").append(c.getTranslationX())
+                        .append(" v=").append(c.getVisibility())
+                        .append(" own=").append(isModuleOwned(c));
+            }
+            log(LOG_INFO, sb.toString());
         }
         try {
             Collections.sort(children, new Comparator<View>() {
