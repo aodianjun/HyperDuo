@@ -3770,11 +3770,21 @@ final class TrioHooks {
             if (child == null) {
                 continue;
             }
-            final String slot = slotOf(child);
-            if (slot == null || MANAGED_SLOTS.contains(slot)) {
+            // The views this module draws itself are left alone; everything
+            // else is the native row. That row is not all StatusBarIconView -
+            // the weather, the step count and the music chip carry no slot at
+            // all - so the test is on the module's own classes, not on getSlot.
+            if (child instanceof OutTypeLabel || child instanceof OutSignalView) {
                 continue;
             }
-            if (child.getRight() <= limit) {
+            final String slot = slotOf(child);
+            if (slot != null && MANAGED_SLOTS.contains(slot)) {
+                continue;
+            }
+            // Measured where it is drawn, not where it was laid out: the row
+            // positions these children with a translation, so the layout box
+            // alone says nothing about what is on screen.
+            if (child.getRight() + child.getTranslationX() <= limit) {
                 if (unmarkCollapsed(child)) {
                     try {
                         if (child.getVisibility() != View.VISIBLE) {
