@@ -22,6 +22,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -3758,33 +3759,47 @@ final class TrioHooks {
         if (reserve <= 0) {
             return;
         }
-        final int limit = container.getWidth() - reserve;
+        // Walk the row from right to left keeping a running left edge: first the
+        // reserved strip, then the left edge of whatever has already been kept.
+        // A child whose right edge crosses that boundary is drawn on top of its
+        // neighbour, which is exactly the overlap this pass exists to remove.
+        // The reserved strip alone is not enough: when the native layout runs
+        // out of room it squeezes the row, so two neighbours can overlap well
+        // inside the strip limit. The row positions its children with a
+        // translation, so the drawn box (left/right plus translationX) is what
+        // has to be compared, never the layout box.
         final int count = container.getChildCount();
+        final List<View> children = new ArrayList<View>(count);
         for (int i = 0; i < count; i++) {
-            final View child;
             try {
-                child = container.getChildAt(i);
-            } catch (Throwable t) {
+                final View child = container.getChildAt(i);
+                if (child != null) {
+                    children.add(child);
+                }
+            } catch (Throwable ignored) {
+                // never let one child abort the pass
+            }
+        }
+        try {
+            Collections.sort(children, new Comparator<View>() {
+                @Override
+                public int compare(View a, View b) {
+                    return Float.compare(drawnRight(b), drawnRight(a));
+                }
+            });
+        } catch (Throwable ignored) {
+            // sorting only decides who wins an overlap, never whether it is one
+        }
+        int edge = container.getWidth() - reserve;
+        for (int i = 0; i < children.size(); i++) {
+            final View child = children.get(i);
+            // The module's own readings are never hidden, but they still own
+            // their slice of the row and push the boundary left.
+            if (isModuleOwned(child)) {
+                edge = Math.min(edge, (int) drawnLeft(child));
                 continue;
             }
-            if (child == null) {
-                continue;
-            }
-            // The views this module draws itself are left alone; everything
-            // else is the native row. That row is not all StatusBarIconView -
-            // the weather, the step count and the music chip carry no slot at
-            // all - so the test is on the module's own classes, not on getSlot.
-            if (child instanceof OutTypeLabel || child instanceof OutSignalView) {
-                continue;
-            }
-            final String slot = slotOf(child);
-            if (slot != null && MANAGED_SLOTS.contains(slot)) {
-                continue;
-            }
-            // Measured where it is drawn, not where it was laid out: the row
-            // positions these children with a translation, so the layout box
-            // alone says nothing about what is on screen.
-            if (child.getRight() + child.getTranslationX() <= limit) {
+            if (drawnRight(child) <= edge) {
                 if (unmarkCollapsed(child)) {
                     try {
                         if (child.getVisibility() != View.VISIBLE) {
@@ -3794,6 +3809,7 @@ final class TrioHooks {
                         // never let one child abort the pass
                     }
                 }
+                edge = Math.min(edge, (int) drawnLeft(child));
                 continue;
             }
             if (child.getVisibility() != View.GONE && markCollapsed(child)) {
@@ -3804,6 +3820,29 @@ final class TrioHooks {
                 }
             }
         }
+    }
+
+    /** Left edge as drawn on screen, translation included. */
+    private static float drawnLeft(View v) {
+        return v.getLeft() + v.getTranslationX();
+    }
+
+    /** Right edge as drawn on screen, translation included. */
+    private static float drawnRight(View v) {
+        return v.getRight() + v.getTranslationX();
+    }
+
+    /**
+     * True for the views this module draws itself, plus the slots it has taken
+     * over. Those are never hidden by the overflow pass; everything else in the
+     * row belongs to the native layout, or to another module drawing into it.
+     */
+    private static boolean isModuleOwned(View child) {
+        if (child instanceof OutTypeLabel || child instanceof OutSignalView) {
+            return true;
+        }
+        final String slot = slotOf(child);
+        return slot != null && MANAGED_SLOTS.contains(slot);
     }
 
     /** Hands the reserved strip back to the native icon row. Idempotent. */
