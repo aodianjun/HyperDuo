@@ -785,11 +785,6 @@ final class TrioOverlay {
         @Override
         protected void onDraw(Canvas canvas) {
             state.refresh();
-            final int ink = state.foreground();
-            TrioHooks.log(TrioHooks.LOG_INFO, "DIAG glyph draw host="
-                    + host.getClass().getSimpleName() + " w=" + getWidth()
-                    + " ink=" + Integer.toHexString(ink)
-                    + " rowInk=" + Integer.toHexString(TrioHooks.rowInk(TrioHooks.rowOf(host))));
             TrioRenderer.drawState(canvas, getWidth(), getHeight(), state, TrioConfig.get());
         }
     }
