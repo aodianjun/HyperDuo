@@ -309,10 +309,17 @@ final class TrioOverlay {
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
         // Marked trusted so the platform does not read this window as a
-        // tap-jacking overlay - see trustedOverlayFlag().
+        // tap-jacking overlay - see trustedOverlayFlag(). privateFlags is a
+        // hidden field, so it is set reflectively like the flag itself.
         final int trusted = trustedOverlayFlag();
         if (trusted != 0) {
-            params.privateFlags |= trusted;
+            try {
+                final Field field = WindowManager.LayoutParams.class
+                        .getField("privateFlags");
+                field.setInt(params, field.getInt(params) | trusted);
+            } catch (Throwable ignored) {
+                // Hidden field: nothing to mark on this build.
+            }
         }
         params.setTitle(TITLE);
         params.alpha = 1f;
