@@ -304,6 +304,9 @@ final class TrioHooks {
     /** Bounded diagnostic counter for the overflow pass. */
     private static int sHideDiag = 0;
 
+    /** Bounded diagnostic counter for the ownership check. */
+    private static int sOwnedDiag = 0;
+
     /** Hard cap on total child dumps, so a layout loop cannot flood the log. */
     private static volatile int sDiagDumps;
     /** Hard cap on container headers, including {@code owned} flips. */
@@ -2526,6 +2529,26 @@ final class TrioHooks {
             return false;
         }
         final View owner = batteryContainerOf((View) container);
+        if (sOwnedDiag < 20) {
+            sOwnedDiag++;
+            String decl;
+            try {
+                final Object d = (owner == null) ? null : Refl.get(sStatusIconField, owner);
+                decl = (d == null) ? "null" : ((d == container) ? "same" : d.getClass().getSimpleName());
+            } catch (Throwable t) {
+                decl = "err:" + t.getClass().getSimpleName();
+            }
+            String live;
+            try {
+                live = String.valueOf(owner != null && holdsLiveHost(owner));
+            } catch (Throwable t) {
+                live = "err:" + t.getClass().getSimpleName();
+            }
+            log(LOG_INFO, "isOwned: c=" + container.getClass().getSimpleName()
+                    + " owner=" + (owner == null ? "null" : owner.getClass().getSimpleName())
+                    + " decl=" + decl + " live=" + live
+                    + " fieldNull=" + (sStatusIconField == null));
+        }
         if (owner == null) {
             return false;
         }
