@@ -307,6 +307,9 @@ final class TrioHooks {
     /** Bounded diagnostic counter for the ownership check. */
     private static int sOwnedDiag = 0;
 
+    /** Bounded counter for the overflow entry log. */
+    private static int sDiagHideEntry = 0;
+
     /** Hard cap on total child dumps, so a layout loop cannot flood the log. */
     private static volatile int sDiagDumps;
     /** Hard cap on container headers, including {@code owned} flips. */
@@ -2529,7 +2532,7 @@ final class TrioHooks {
             return false;
         }
         final View owner = batteryContainerOf((View) container);
-        if (sOwnedDiag < 20) {
+        if (sOwnedDiag < 200) {
             sOwnedDiag++;
             String decl;
             try {
@@ -2547,6 +2550,7 @@ final class TrioHooks {
             log(LOG_INFO, "isOwned: c=" + container.getClass().getSimpleName()
                     + " owner=" + (owner == null ? "null" : owner.getClass().getSimpleName())
                     + " decl=" + decl + " live=" + live
+                    + " kg=" + isKeyguardRow((View) container)
                     + " fieldNull=" + (sStatusIconField == null));
         }
         if (owner == null) {
@@ -3778,6 +3782,13 @@ final class TrioHooks {
      */
     private static void hideOverflowingIcons(ViewGroup container) {
         final int[] saved = OUT_PAD_SAVED.get(container);
+        if (sDiagHideEntry < 40) {
+            sDiagHideEntry++;
+            log(LOG_INFO, "hideEntry: saved=" + (saved == null ? "null" : "yes")
+                    + " padR=" + container.getPaddingRight()
+                    + " w=" + container.getWidth()
+                    + " kg=" + isKeyguardRow(container));
+        }
         if (saved == null) {
             return;
         }
