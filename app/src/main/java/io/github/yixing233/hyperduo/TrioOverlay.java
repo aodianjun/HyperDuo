@@ -227,6 +227,9 @@ final class TrioOverlay {
 
     private static int sWindowType;
 
+    /** PRIVATE_FLAG_TRUSTED_OVERLAY, or 0 on a build that has no such flag. */
+    private static int sTrustedOverlay;
+
     /**
      * The one host whose window is live.
      *
@@ -305,6 +308,12 @@ final class TrioOverlay {
                 | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS;
+        // Marked trusted so the platform does not read this window as a
+        // tap-jacking overlay - see trustedOverlayFlag().
+        final int trusted = trustedOverlayFlag();
+        if (trusted != 0) {
+            params.privateFlags |= trusted;
+        }
         params.setTitle(TITLE);
         params.alpha = 1f;
         params.windowAnimations = 0;
@@ -773,6 +782,32 @@ final class TrioOverlay {
             sWindowType = type;
         }
         return sWindowType;
+    }
+
+    /**
+     * {@code PRIVATE_FLAG_TRUSTED_OVERLAY}, read reflectively because it is a
+     * hidden constant, or {@code 0} on a build that does not have it.
+     *
+     * <p>Without the mark the platform treats a window drawn over an app as a
+     * possible tap-jacking attempt: a touch that lands under it is flagged as
+     * obscured, and an app that checks for that - a module manager, say -
+     * refuses to act on it. This window is not that kind of overlay. It is not
+     * touchable, it is one icon wide and sits in the bar, and it belongs to the
+     * system UI.
+     */
+    private static int trustedOverlayFlag() {
+        if (sTrustedOverlay == 0) {
+            int flag = 0;
+            try {
+                final Field field = WindowManager.LayoutParams.class
+                        .getField("PRIVATE_FLAG_TRUSTED_OVERLAY");
+                flag = field.getInt(null);
+            } catch (Throwable ignored) {
+                // Older platform: there is no such mark to set.
+            }
+            sTrustedOverlay = flag;
+        }
+        return sTrustedOverlay;
     }
 
     /** The glyph itself: the same drawing call the hooked view used to make. */
