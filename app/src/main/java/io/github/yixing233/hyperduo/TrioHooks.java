@@ -1487,7 +1487,7 @@ final class TrioHooks {
                     public Object intercept(XposedInterface.Chain chain) throws Throwable {
                         final Object result = chain.proceed();
                         final Object self = chain.getThisObject();
-                        if (self instanceof View && TrioConfig.appearance().typeAnywhere()) {
+                        if (self instanceof View) {
                             // Signature: (areas, intensity, tintColor, light, dark,
                             // useTint). Resolve the ink exactly the way
                             // TrioState.foreground() resolves it from the very
@@ -1516,7 +1516,11 @@ final class TrioHooks {
                             }
                             final View v = (View) self;
                             final Object owner = batteryContainerOf(v);
-                            if (owner instanceof ViewGroup) {
+                            if (owner instanceof View) {
+                                ROW_INK.put((View) owner, ink);
+                            }
+                            if (owner instanceof ViewGroup
+                                    && TrioConfig.appearance().typeAnywhere()) {
                                 applyOutRingInk((ViewGroup) owner, ink);
                             }
                         }
