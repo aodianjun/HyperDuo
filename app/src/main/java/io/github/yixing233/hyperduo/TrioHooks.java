@@ -1773,6 +1773,22 @@ final class TrioHooks {
     }
 
     /**
+     * Files {@code colour} as the ink of {@code row}.
+     *
+     * <p>Called with the colour SystemUI is painting its own icons in. The
+     * caller cannot name the row itself: a status bar icon sits in the icon
+     * container, not in a battery container, so walking up from the icon finds
+     * nothing and the colour would be dropped on the floor - which is what kept
+     * a row tinted while the bar was dark at that ink after the background
+     * changed.
+     */
+    static void fileRowInk(View row, int colour) {
+        if (row != null && colour != 0) {
+            ROW_INK.put(row, colour);
+        }
+    }
+
+    /**
      * Hears the colour SystemUI paints its own icons in.
      *
      * <p>The tint fields the colour rule reads are set when the bar is built and
@@ -1823,6 +1839,11 @@ final class TrioHooks {
                 // is cleared by this module and does not draw the glyph, so a
                 // tint change would otherwise leave the window showing the ink
                 // of whatever background it was last drawn on.
+                // The icon carrying this colour sits in the icon container, so
+                // walking up from it finds no row and the colour would be
+                // dropped. File it against the rows this module draws for, which
+                // is what lets a re-tint reach the glyph at all.
+                TrioOverlay.fileInk(colour);
                 TrioOverlay.redrawAll();
                 return result;
             }

@@ -553,6 +553,24 @@ final class TrioOverlay {
     }
 
     /**
+     * Files {@code colour} as the ink of every live host's row.
+     *
+     * <p>The caller is the hook on the icon tint: it knows the colour the bar is
+     * painting its own icons in, but it cannot name the row, because the icon it
+     * hooks sits in the icon container rather than in a battery container. The
+     * rows these windows serve are the ones to file it against.
+     */
+    static void fileInk(int colour) {
+        for (View host : LIVE.keySet()) {
+            try {
+                TrioHooks.fileRowInk(TrioHooks.rowOf(host), colour);
+            } catch (Throwable ignored) {
+                // A host that went away mid-pass is not this call's problem.
+            }
+        }
+    }
+
+    /**
      * Follows the host: same visibility, same centre, and a repaint whenever the
      * host repaints. Runs inside the host's draw pass, so nothing here may
      * schedule layout on the host.
