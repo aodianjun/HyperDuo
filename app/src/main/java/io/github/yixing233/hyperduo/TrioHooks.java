@@ -1520,6 +1520,10 @@ final class TrioHooks {
                                 applyOutRingInk((ViewGroup) owner, ink);
                             }
                         }
+                        // Same reason as the icon-tint hook: this is the bar
+                        // being told what to draw on, and the glyph lives in a
+                        // window this module clears the bar's own view out of.
+                        TrioOverlay.redrawAll();
                         return result;
                     }
                 });
@@ -1810,6 +1814,12 @@ final class TrioHooks {
                         ROW_INK.put(row, colour);
                     }
                 }
+                // The bar has just been re-tinted, and while the glyph is in a
+                // window of its own nothing else repaints it: the bar's own view
+                // is cleared by this module and does not draw the glyph, so a
+                // tint change would otherwise leave the window showing the ink
+                // of whatever background it was last drawn on.
+                TrioOverlay.redrawAll();
                 return result;
             }
         };

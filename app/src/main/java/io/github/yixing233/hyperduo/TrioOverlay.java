@@ -523,6 +523,36 @@ final class TrioOverlay {
     }
 
     /**
+     * Repaints every live glyph window.
+     *
+     * <p>The window only repaints when something invalidates it, and while it is
+     * up the bar's own view draws nothing - this module clears it - so a change
+     * that reaches only the tint never repaints the glyph: the bar is re-tinted,
+     * its own view is not redrawn because the module owns the pixels, and
+     * sync() - which is the call that invalidates this view - is not run either.
+     * The glyph then keeps the ink of the background it was last drawn on, which
+     * is a white glyph on a light bar.
+     *
+     * <p>The tint hooks call this as the bar's ink changes, so the glyph follows
+     * it. Invalidating a view that is already up to date costs nothing, so this
+     * does not need to know whether anything really moved.
+     */
+    static void redrawAll() {
+        for (TrioOverlay overlay : LIVE.values()) {
+            try {
+                overlay.redraw();
+            } catch (Throwable ignored) {
+                // A host that went away mid-pass is not this call's problem.
+            }
+        }
+    }
+
+    /** Invalidates this window's view. UI thread only. */
+    private void redraw() {
+        glyph.invalidate();
+    }
+
+    /**
      * Follows the host: same visibility, same centre, and a repaint whenever the
      * host repaints. Runs inside the host's draw pass, so nothing here may
      * schedule layout on the host.
@@ -737,6 +767,11 @@ final class TrioOverlay {
         @Override
         protected void onDraw(Canvas canvas) {
             state.refresh();
+            final int ink = state.foreground();
+            TrioHooks.log(TrioHooks.LOG_INFO, "DIAG glyph draw host="
+                    + host.getClass().getSimpleName() + " w=" + getWidth()
+                    + " ink=" + Integer.toHexString(ink)
+                    + " rowInk=" + Integer.toHexString(TrioHooks.rowInk(TrioHooks.rowOf(host))));
             TrioRenderer.drawState(canvas, getWidth(), getHeight(), state, TrioConfig.get());
         }
     }
