@@ -334,6 +334,18 @@ final class TrioHooks {
      * one icon per pass. The remembered width keeps every hidden child in the
      * sum it belongs to.
      */
+    /**
+     * The right edge each child was last drawn at.
+     *
+     * <p>Only used to order the row: the visual order of the children is what
+     * decides which of them is the one that has to give way, and that order
+     * cannot be read from the child indices - MIUI re-adds them in whatever
+     * order it likes, so a pass that trusted the indices hid the wrong ones and
+     * left the rightmost icon sitting under the reading.
+     */
+    private static final Map<View, Integer> LAST_RIGHT =
+            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
+
     private static final Map<View, Integer> LAST_WIDTH =
             Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
@@ -3962,28 +3974,52 @@ final class TrioHooks {
         // pass. A child this pass hid still counts with the width it had, so
         // every pass decides the same set.
         final int limit = container.getWidth() - reserve;
-        int pos = container.getWidth();
-        for (int i = container.getChildCount() - 1; i >= 0; i--) {
-            final View child;
+        // Collect the children that take part in the row, remembering the width
+        // and the right edge of each while it is on screen: a child this pass
+        // hid is gone from the layout and would otherwise answer zero for both.
+        final List<View> row = new ArrayList<View>();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            final View c;
             try {
-                child = container.getChildAt(i);
+                c = container.getChildAt(i);
             } catch (Throwable t) {
                 continue;
             }
-            if (child == null || isModuleOwned(child)) {
+            if (c == null || isModuleOwned(c)) {
                 continue;
             }
-            final boolean ours = isCollapsed(child);
-            int width = 0;
-            if (child.getVisibility() == View.VISIBLE) {
-                width = child.getMeasuredWidth();
-                if (width > 0) {
-                    LAST_WIDTH.put(child, Integer.valueOf(width));
+            if (c.getVisibility() == View.VISIBLE) {
+                final int w = c.getMeasuredWidth();
+                if (w > 0) {
+                    LAST_WIDTH.put(c, Integer.valueOf(w));
+                    LAST_RIGHT.put(c, Integer.valueOf((int) drawnRight(c)));
+                    row.add(c);
                 }
-            } else if (ours) {
-                final Integer last = LAST_WIDTH.get(child);
-                width = (last == null) ? 0 : last.intValue();
+            } else if (isCollapsed(c)) {
+                final Integer w = LAST_WIDTH.get(c);
+                if (w != null && w.intValue() > 0) {
+                    row.add(c);
+                }
             }
+        }
+        // Right to left, as the row itself is laid out, and by where the
+        // children are actually drawn rather than by their order in the
+        // container.
+        try {
+            Collections.sort(row, new Comparator<View>() {
+                @Override
+                public int compare(View a, View b) {
+                    return Integer.compare(rightOf(b), rightOf(a));
+                }
+            });
+        } catch (Throwable ignored) {
+            // the order only decides which icon yields, never whether one does
+        }
+        int pos = container.getWidth();
+        for (int i = 0; i < row.size(); i++) {
+            final View child = row.get(i);
+            final Integer w = LAST_WIDTH.get(child);
+            final int width = (w == null) ? 0 : w.intValue();
             if (width <= 0) {
                 continue;
             }
@@ -4006,6 +4042,15 @@ final class TrioHooks {
             }
             pos -= width;
         }
+    }
+
+    /** Where the child was last drawn, for ordering the row. */
+    private static int rightOf(View v) {
+        if (v.getVisibility() == View.VISIBLE) {
+            return (int) drawnRight(v);
+        }
+        final Integer last = LAST_RIGHT.get(v);
+        return (last == null) ? 0 : last.intValue();
     }
 
     /** True when the overflow pass is the one hiding this child. */
