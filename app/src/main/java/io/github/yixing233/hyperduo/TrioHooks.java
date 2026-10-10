@@ -3875,9 +3875,29 @@ final class TrioHooks {
         // left the boundary at the row's own edge - and the last icon, sitting
         // exactly on that edge, then landed on top of the reading.
         final Object owner = batteryContainerOf(container);
-        final int reserve = (owner instanceof ViewGroup)
+        int reserve = (owner instanceof ViewGroup)
                 ? outRingStripWidth((ViewGroup) owner)
                 : 0;
+        if (reserve <= 0) {
+            // The reading may simply not be mounted yet - it is added from a
+            // posted runnable - but the strip it needs is already on this row as
+            // end padding, put there by the same reservation. Reading the
+            // padding back is a second source that does not depend on the
+            // reading existing at this instant.
+            reserve = container.getPaddingRight();
+        }
+        if (reserve <= 0) {
+            // Last resort: the width this row last gave up. A row that has been
+            // reserving a strip keeps doing so across the passes in which the
+            // reading is being re-mounted.
+            final Integer last = LAST_STRIP.get(container);
+            if (last != null) {
+                reserve = last.intValue();
+            }
+        }
+        if (reserve > 0) {
+            LAST_STRIP.put(container, Integer.valueOf(reserve));
+        }
         if (sDiagHideEntry < 40) {
             sDiagHideEntry++;
             log(LOG_INFO, "hideEntry: reserve=" + reserve
