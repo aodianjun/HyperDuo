@@ -3946,7 +3946,7 @@ final class TrioHooks {
         }
         final StringBuilder decision = new StringBuilder();
         for (int i = 0; i < boxes.size(); i++) {
-            decision.append('[').append(boxes.get(i)[0]).append('..')
+            decision.append('[').append(boxes.get(i)[0]).append("..")
                     .append(boxes.get(i)[1]).append(']');
         }
         for (int i = 0; i < container.getChildCount(); i++) {
