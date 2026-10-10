@@ -3763,27 +3763,32 @@ final class TrioHooks {
             if (width == null) {
                 return 0;
             }
-            final Object value = Refl.invoke(width, monitor);
-            final int px = (value instanceof Integer) ? (Integer) value : 0;
-            if (px > 0) {
-                return px;
-            }
-            // The monitor's width is the number MIUI is supposed to move the row
-            // by, but it reads empty on this build while a music island is up -
-            // the getBlocked() test above passes and the width still comes back
-            // zero - and the row is demonstrably shifted anyway, which leaves
-            // the reading drawn underneath the island. The container's own
-            // translation is the number it actually laid the row out with, so
-            // fall back to that instead of reporting "no island".
+            // The container's own translation first: that is the number it laid
+            // the row out with, and it is what the native icons beside the
+            // reading actually moved by. The monitor's width is a different
+            // quantity - how much of the row the island occupies - and it is far
+            // larger than the shift on this build, so using it as the shift
+            // pushes the reading clean off the bar instead of beside the island.
             final Method used = Refl.method(iconContainer.getClass(), "getIslandTranslationX");
             if (used != null) {
                 final Object shift = Refl.invoke(used, iconContainer);
                 if (shift instanceof Integer) {
-                    return Math.max(0, ((Integer) shift).intValue());
+                    final int sx = ((Integer) shift).intValue();
+                    if (sx > 0) {
+                        return sx;
+                    }
                 }
                 if (shift instanceof Float) {
-                    return Math.max(0, ((Float) shift).intValue());
+                    final int sx = ((Float) shift).intValue();
+                    if (sx > 0) {
+                        return sx;
+                    }
                 }
+            }
+            final Object value = Refl.invoke(width, monitor);
+            final int px = (value instanceof Integer) ? (Integer) value : 0;
+            if (px > 0) {
+                return px;
             }
             return 0;
         } catch (Throwable ignored) {
