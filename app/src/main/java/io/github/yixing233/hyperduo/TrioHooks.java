@@ -3789,7 +3789,15 @@ final class TrioHooks {
         // stores the width it accumulates, so nothing is ever hidden by it - and
         // that squeeze is what draws two icons on top of each other. With nothing
         // reserved the boundary is simply the container's own right edge.
-        final int reserve = outRingStripWidth(container);
+        // The reading is not a child of this row: it is mounted in the battery
+        // container, which is this row's parent, so the strip has to be measured
+        // there. Asking this container returns zero every time, which is what
+        // left the boundary at the row's own edge - and the last icon, sitting
+        // exactly on that edge, then landed on top of the reading.
+        final Object owner = batteryContainerOf(container);
+        final int reserve = (owner instanceof ViewGroup)
+                ? outRingStripWidth((ViewGroup) owner)
+                : 0;
         if (sDiagHideEntry < 40) {
             sDiagHideEntry++;
             log(LOG_INFO, "hideEntry: reserve=" + reserve
