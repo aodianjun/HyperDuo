@@ -321,6 +321,18 @@ final class TrioHooks {
      * remembered width bridges that gap; when the reading is gone for good,
      * nothing refreshes the entry and it ages out with the row.
      */
+    /**
+     * The width each child last measured at.
+     *
+     * <p>A child this pass hid is gone from the layout, so asking it for its
+     * width afterwards answers zero - and a zero width would drop it out of the
+     * running total the pass stacks up, which is what let the row empty itself
+     * one icon per pass. The remembered width keeps every hidden child in the
+     * sum it belongs to.
+     */
+    private static final Map<View, Integer> LAST_WIDTH =
+            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
+
     private static final Map<View, Integer> LAST_STRIP =
             Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
@@ -3955,35 +3967,66 @@ final class TrioHooks {
         } catch (Throwable ignored) {
             // sorting only decides who wins an overlap, never whether it is one
         }
-        int edge = container.getWidth() - reserve;
-        for (int i = 0; i < children.size(); i++) {
-            final View child = children.get(i);
-            // The module's own readings are never hidden, but they still own
-            // their slice of the row and push the boundary left.
-            if (isModuleOwned(child)) {
-                edge = Math.min(edge, (int) drawnLeft(child));
+        // Walk the row the way the row lays itself out: right to left, in
+        // descending child order, giving each child the width it measured and
+        // stacking them against the container's right edge. The positions are
+        // computed rather than read back, because reading them back makes the
+        // decision depend on its own result - hiding the last icon makes MIUI
+        // lay the remaining ones out further right, which makes the next pass
+        // hide the one after that, and the row empties itself one icon per
+        // pass. A child this pass hid still counts with the width it had, so
+        // every pass decides the same set.
+        final int limit = container.getWidth() - reserve;
+        int pos = container.getWidth();
+        for (int i = container.getChildCount() - 1; i >= 0; i--) {
+            final View child;
+            try {
+                child = container.getChildAt(i);
+            } catch (Throwable t) {
                 continue;
             }
-            if (drawnRight(child) <= edge) {
-                if (unmarkCollapsed(child)) {
+            if (child == null || isModuleOwned(child)) {
+                continue;
+            }
+            final boolean ours = isCollapsed(child);
+            int width = 0;
+            if (child.getVisibility() == View.VISIBLE) {
+                width = child.getMeasuredWidth();
+                if (width > 0) {
+                    LAST_WIDTH.put(child, Integer.valueOf(width));
+                }
+            } else if (ours) {
+                final Integer last = LAST_WIDTH.get(child);
+                width = (last == null) ? 0 : last.intValue();
+            }
+            if (width <= 0) {
+                continue;
+            }
+            if (pos > limit) {
+                if (child.getVisibility() != View.GONE && markCollapsed(child)) {
                     try {
-                        if (child.getVisibility() != View.VISIBLE) {
-                            child.setVisibility(View.VISIBLE);
-                        }
+                        child.setVisibility(View.GONE);
                     } catch (Throwable ignored) {
                         // never let one child abort the pass
                     }
                 }
-                edge = Math.min(edge, (int) drawnLeft(child));
-                continue;
-            }
-            if (child.getVisibility() != View.GONE && markCollapsed(child)) {
+            } else if (unmarkCollapsed(child)) {
                 try {
-                    child.setVisibility(View.GONE);
+                    if (child.getVisibility() != View.VISIBLE) {
+                        child.setVisibility(View.VISIBLE);
+                    }
                 } catch (Throwable ignored) {
                     // never let one child abort the pass
                 }
             }
+            pos -= width;
+        }
+    }
+
+    /** True when the overflow pass is the one hiding this child. */
+    private static boolean isCollapsed(View child) {
+        synchronized (COLLAPSED) {
+            return COLLAPSED.containsKey(child);
         }
     }
 
