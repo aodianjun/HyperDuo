@@ -3784,6 +3784,11 @@ final class TrioHooks {
      * are skipped, and the battery is not in this container to begin with.
      */
     private static void hideOverflowingIcons(ViewGroup container) {
+        // A zero strip is not a reason to skip the pass. MIUI squeezes the row on
+        // its own as soon as the icons stop fitting - its overflow walk never
+        // stores the width it accumulates, so nothing is ever hidden by it - and
+        // that squeeze is what draws two icons on top of each other. With nothing
+        // reserved the boundary is simply the container's own right edge.
         final int reserve = outRingStripWidth(container);
         if (sDiagHideEntry < 40) {
             sDiagHideEntry++;
@@ -3792,9 +3797,6 @@ final class TrioHooks {
                     + " w=" + container.getWidth()
                     + " id=" + System.identityHashCode(container)
                     + " kg=" + isKeyguardRow(container));
-        }
-        if (reserve <= 0) {
-            return;
         }
         // Walk the row from right to left keeping a running left edge: first the
         // reserved strip, then the left edge of whatever has already been kept.
