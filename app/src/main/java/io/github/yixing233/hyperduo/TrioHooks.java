@@ -2094,6 +2094,26 @@ final class TrioHooks {
     }
 
     /** True when {@code view} sits inside the keyguard's own status bar row. */
+    /**
+     * True when {@code view} sits in the bar's own window rather than in the
+     * shade. The overflow pass is safe for both rows of the bar - the status bar
+     * and the lock screen's - but not for the copies the shade keeps, which are
+     * laid out for the expanded panel and are none of this module's business.
+     */
+    private static boolean isStatusBarRow(View view) {
+        for (ViewParent p = view.getParent(); p != null;
+             p = (p instanceof View) ? ((View) p).getParent() : null) {
+            final String name = p.getClass().getSimpleName();
+            if (name.contains("StatusBarWindowView")) {
+                return true;
+            }
+            if (name.contains("NotificationShadeWindowView")) {
+                return false;
+            }
+        }
+        return false;
+    }
+
     private static boolean isKeyguardRow(View view) {
         for (ViewParent p = view.getParent(); p != null;
              p = (p instanceof View) ? ((View) p).getParent() : null) {
@@ -2185,6 +2205,15 @@ final class TrioHooks {
         final boolean owned = isOwned(container);
         diagnose(container, owned);
         if (!owned) {
+            // The overlap this pass removes is MIUI's own doing - its overflow
+            // walk never stores the width it accumulates, so it never hides
+            // anything - and that happens in every row, including the ones the
+            // module is not drawing a glyph into. Those rows are still the
+            // bar's; the shade keeps its own copies of the same layout, and
+            // those are left alone.
+            if (isStatusBarRow(container)) {
+                hideOverflowingIcons(container);
+            }
             noteSkipped(container);
             return;
         }
