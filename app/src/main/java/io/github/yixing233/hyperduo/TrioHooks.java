@@ -310,6 +310,20 @@ final class TrioHooks {
     /** Bounded counter for the overflow entry log. */
     private static int sDiagHideEntry = 0;
 
+    /**
+     * The last non-zero strip measured per row.
+     *
+     * <p>The reading is torn down and re-mounted whenever MIUI rearranges the
+     * bar - a super island appearing does exactly that - and for the layout
+     * passes in between there is nothing to measure. Reading zero then collapses
+     * the boundary back to the row's own edge and hands the last icon its place
+     * back, which is how the overlap returned after it had been fixed. A
+     * remembered width bridges that gap; when the reading is gone for good,
+     * nothing refreshes the entry and it ages out with the row.
+     */
+    private static final Map<View, Integer> LAST_STRIP =
+            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
+
     /** Hard cap on total child dumps, so a layout loop cannot flood the log. */
     private static volatile int sDiagDumps;
     /** Hard cap on container headers, including {@code owned} flips. */
@@ -4300,6 +4314,15 @@ final class TrioHooks {
             // against the label and the outward margin did nothing at all while
             // the reading was on screen.
             total += label.getMeasuredWidth() + labelInward + labelOutward;
+        }
+        if (total <= 0 && outSignalWanted()) {
+            final Integer last = LAST_STRIP.get(container);
+            if (last != null) {
+                total = last.intValue();
+            }
+        }
+        if (total > 0) {
+            LAST_STRIP.put(container, Integer.valueOf(total));
         }
         return total;
     }
