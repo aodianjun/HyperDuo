@@ -3763,7 +3763,10 @@ final class TrioHooks {
         if (debugLog()) {
             log(LOG_INFO, "out type: reserved " + reserve + "px, icon padding "
                     + saved[0] + "/" + saved[1] + " -> " + left + "/" + right
-                    + ", icons w=" + icons.getWidth());
+                    + ", icons w=" + icons.getWidth()
+                    + " id=" + System.identityHashCode(icons)
+                    + " cls=" + icons.getClass().getSimpleName()
+                    + " mapSize=" + OUT_PAD_SAVED.size());
         }
     }
 
@@ -3787,6 +3790,9 @@ final class TrioHooks {
             log(LOG_INFO, "hideEntry: saved=" + (saved == null ? "null" : "yes")
                     + " padR=" + container.getPaddingRight()
                     + " w=" + container.getWidth()
+                    + " id=" + System.identityHashCode(container)
+                    + " cls=" + container.getClass().getSimpleName()
+                    + " mapSize=" + OUT_PAD_SAVED.size()
                     + " kg=" + isKeyguardRow(container));
         }
         if (saved == null) {
