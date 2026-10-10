@@ -310,6 +310,10 @@ final class TrioHooks {
     /** Bounded counter for the overflow entry log. */
     private static int sDiagHideEntry = 0;
 
+    /** Last decision logged per row, so the log fires on change only. */
+    private static final Map<View, String> LAST_DECISION =
+            Collections.synchronizedMap(new WeakHashMap<View, String>());
+
     /**
      * The last non-zero strip measured per row.
      *
@@ -3927,33 +3931,26 @@ final class TrioHooks {
                 // never let one child abort the pass
             }
         }
-        if (debugLog() && sHideDiag < 30) {
-            sHideDiag++;
-            final StringBuilder sb = new StringBuilder();
-            sb.append("hide: w=").append(container.getWidth())
-                    .append(" reserve=").append(reserve)
-                    .append(" limit=").append(container.getWidth() - reserve);
-            for (int i = 0; i < children.size(); i++) {
-                final View c = children.get(i);
-                sb.append(" | ").append(c.getClass().getSimpleName())
-                        .append(" slot=").append(slotOf(c))
-                        .append(" l=").append(c.getLeft())
-                        .append(" r=").append(c.getRight())
-                        .append(" tx=").append(c.getTranslationX())
-                        .append(" v=").append(c.getVisibility())
-                        .append(" own=").append(isModuleOwned(c));
+        final StringBuilder decision = new StringBuilder();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            final View c = container.getChildAt(i);
+            if (c == null || isModuleOwned(c)) {
+                continue;
             }
-            log(LOG_INFO, sb.toString());
+            if (c.getVisibility() == View.GONE && !isCollapsed(c)) {
+                continue;
+            }
+            decision.append(slotOf(c)).append('=').append(c.getVisibility()).append(' ');
         }
-        try {
-            Collections.sort(children, new Comparator<View>() {
-                @Override
-                public int compare(View a, View b) {
-                    return Float.compare(drawnRight(b), drawnRight(a));
-                }
-            });
-        } catch (Throwable ignored) {
-            // sorting only decides who wins an overlap, never whether it is one
+        final String line = decision.toString();
+        final String previous = LAST_DECISION.get(container);
+        if (debugLog() && !line.equals(previous)) {
+            LAST_DECISION.put(container, line);
+            log(LOG_INFO, "row: w=" + container.getWidth()
+                    + " reserve=" + reserve
+                    + " limit=" + (container.getWidth() - reserve)
+                    + " kg=" + isKeyguardRow(container)
+                    + " | " + line);
         }
         // Walk the row the way the row lays itself out: right to left, in
         // descending child order, giving each child the width it measured and
