@@ -3784,21 +3784,15 @@ final class TrioHooks {
      * are skipped, and the battery is not in this container to begin with.
      */
     private static void hideOverflowingIcons(ViewGroup container) {
-        final int[] saved = OUT_PAD_SAVED.get(container);
+        final int reserve = outRingStripWidth(container);
         if (sDiagHideEntry < 40) {
             sDiagHideEntry++;
-            log(LOG_INFO, "hideEntry: saved=" + (saved == null ? "null" : "yes")
+            log(LOG_INFO, "hideEntry: reserve=" + reserve
                     + " padR=" + container.getPaddingRight()
                     + " w=" + container.getWidth()
                     + " id=" + System.identityHashCode(container)
-                    + " cls=" + container.getClass().getSimpleName()
-                    + " mapSize=" + OUT_PAD_SAVED.size()
                     + " kg=" + isKeyguardRow(container));
         }
-        if (saved == null) {
-            return;
-        }
-        final int reserve = container.getPaddingRight() - saved[1];
         if (reserve <= 0) {
             return;
         }
@@ -4242,7 +4236,17 @@ final class TrioHooks {
      * strip is one number: whichever view is updated last would otherwise decide
      * the padding for both of them.
      */
-    private static void reserveOutRingStrip(ViewGroup container) {
+    /**
+     * The width the out-of-ring reading needs from the native icon row right
+     * now, or 0 when nothing is mounted.
+     *
+     * <p>Split out of {@link #reserveOutRingStrip} so that the overflow pass can
+     * ask the same question. It runs from {@code onLayout}, while the padding is
+     * applied from a posted runnable, so the padding it would otherwise read is
+     * often not there yet - and the weak map the padding is recorded in does not
+     * survive the row being rebuilt either.
+     */
+    private static int outRingStripWidth(ViewGroup container) {
         final OutSignalView signal = findOutSignal(container);
         final boolean signalOn = signal != null && signal.getVisibility() == View.VISIBLE;
         final OutTypeLabel label = findOutTypeLabel(container);
@@ -4277,6 +4281,11 @@ final class TrioHooks {
             // the reading was on screen.
             total += label.getMeasuredWidth() + labelInward + labelOutward;
         }
+        return total;
+    }
+
+    private static void reserveOutRingStrip(ViewGroup container) {
+        final int total = outRingStripWidth(container);
         if (total <= 0) {
             releaseOutTypeSpace(container);
             return;
