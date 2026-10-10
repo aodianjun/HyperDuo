@@ -3974,83 +3974,58 @@ final class TrioHooks {
         // pass. A child this pass hid still counts with the width it had, so
         // every pass decides the same set.
         final int limit = container.getWidth() - reserve;
-        // Collect the children that take part in the row, remembering the width
-        // and the right edge of each while it is on screen: a child this pass
-        // hid is gone from the layout and would otherwise answer zero for both.
-        final List<View> row = new ArrayList<View>();
+        // Decide from where each child is actually drawn, which is the only
+        // thing that says whether it is under the reading. A child that crosses
+        // the boundary is hidden; the rightmost one crosses first, so the icon
+        // that has to give way can never be missed - which is what ordering the
+        // row by anything else got wrong. A child this pass hid is judged by the
+        // edge it was last drawn at, so it comes back when the boundary moves
+        // out past it again and stays put otherwise.
         for (int i = 0; i < container.getChildCount(); i++) {
-            final View c;
+            final View child;
             try {
-                c = container.getChildAt(i);
+                child = container.getChildAt(i);
             } catch (Throwable t) {
                 continue;
             }
-            if (c == null || isModuleOwned(c)) {
+            if (child == null || isModuleOwned(child)) {
                 continue;
             }
-            if (c.getVisibility() == View.VISIBLE) {
-                final int w = c.getMeasuredWidth();
+            final boolean ours = isCollapsed(child);
+            if (child.getVisibility() == View.VISIBLE) {
+                final int w = child.getMeasuredWidth();
                 if (w > 0) {
-                    LAST_WIDTH.put(c, Integer.valueOf(w));
-                    LAST_RIGHT.put(c, Integer.valueOf((int) drawnRight(c)));
-                    row.add(c);
+                    LAST_WIDTH.put(child, Integer.valueOf(w));
                 }
-            } else if (isCollapsed(c)) {
-                final Integer w = LAST_WIDTH.get(c);
-                if (w != null && w.intValue() > 0) {
-                    row.add(c);
+                final int right = (int) drawnRight(child);
+                if (w > 0) {
+                    LAST_RIGHT.put(child, Integer.valueOf(right));
                 }
-            }
-        }
-        // Right to left, as the row itself is laid out, and by where the
-        // children are actually drawn rather than by their order in the
-        // container.
-        try {
-            Collections.sort(row, new Comparator<View>() {
-                @Override
-                public int compare(View a, View b) {
-                    return Integer.compare(rightOf(b), rightOf(a));
+                if (w > 0 && right > limit) {
+                    if (markCollapsed(child)) {
+                        try {
+                            child.setVisibility(View.GONE);
+                        } catch (Throwable ignored) {
+                            // never let one child abort the pass
+                        }
+                    }
                 }
-            });
-        } catch (Throwable ignored) {
-            // the order only decides which icon yields, never whether one does
-        }
-        int pos = container.getWidth();
-        for (int i = 0; i < row.size(); i++) {
-            final View child = row.get(i);
-            final Integer w = LAST_WIDTH.get(child);
-            final int width = (w == null) ? 0 : w.intValue();
-            if (width <= 0) {
                 continue;
             }
-            if (pos > limit) {
-                if (child.getVisibility() != View.GONE && markCollapsed(child)) {
+            if (!ours) {
+                continue;
+            }
+            final Integer last = LAST_RIGHT.get(child);
+            if (last != null && last.intValue() <= limit) {
+                if (unmarkCollapsed(child)) {
                     try {
-                        child.setVisibility(View.GONE);
+                        child.setVisibility(View.VISIBLE);
                     } catch (Throwable ignored) {
                         // never let one child abort the pass
                     }
                 }
-            } else if (unmarkCollapsed(child)) {
-                try {
-                    if (child.getVisibility() != View.VISIBLE) {
-                        child.setVisibility(View.VISIBLE);
-                    }
-                } catch (Throwable ignored) {
-                    // never let one child abort the pass
-                }
             }
-            pos -= width;
         }
-    }
-
-    /** Where the child was last drawn, for ordering the row. */
-    private static int rightOf(View v) {
-        if (v.getVisibility() == View.VISIBLE) {
-            return (int) drawnRight(v);
-        }
-        final Integer last = LAST_RIGHT.get(v);
-        return (last == null) ? 0 : last.intValue();
     }
 
     /** True when the overflow pass is the one hiding this child. */
