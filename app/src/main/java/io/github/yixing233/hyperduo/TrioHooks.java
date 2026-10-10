@@ -3890,26 +3890,14 @@ final class TrioHooks {
         int reserve = (owner instanceof ViewGroup)
                 ? outRingStripWidth((ViewGroup) owner)
                 : 0;
-        if (reserve <= 0) {
-            // The reading may simply not be mounted yet - it is added from a
-            // posted runnable - but the strip it needs is already on this row as
-            // end padding, put there by the same reservation. Reading the
-            // padding back is a second source that does not depend on the
-            // reading existing at this instant.
-            reserve = container.getPaddingRight();
-        }
-        if (reserve <= 0) {
-            // Last resort: the width this row last gave up. A row that has been
-            // reserving a strip keeps doing so across the passes in which the
-            // reading is being re-mounted.
-            final Integer last = LAST_STRIP.get(container);
-            if (last != null) {
-                reserve = last.intValue();
-            }
-        }
-        if (reserve > 0) {
-            LAST_STRIP.put(container, Integer.valueOf(reserve));
-        }
+        // The reading is the only source that is right about this row. The
+        // padding belongs to whichever row the reservation ran on - with two
+        // rows on screen (the bar's and the lock screen's) that is often not
+        // this one - and a remembered width outlives the reading it was
+        // measured for, which is how an icon that had already stepped aside
+        // came back: a pass that read zero put it back, and if no further pass
+        // followed, it stayed back. A row with no reading mounted has nothing
+        // to overlap, so it hides nothing.
         if (sDiagHideEntry < 40) {
             sDiagHideEntry++;
             log(LOG_INFO, "hideEntry: reserve=" + reserve
