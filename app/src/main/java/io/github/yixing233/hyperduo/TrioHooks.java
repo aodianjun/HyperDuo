@@ -4187,6 +4187,16 @@ final class TrioHooks {
         // this view's width plus the label's, and the gap around both.
         reserveOutRingStrip(container);
         placeOutTypeLabel(container, view, anchor, outSignalMargin(container));
+        // The pass that removes an overlapping icon runs from the row's own
+        // onLayout, and by then the reading may not be mounted yet - it is added
+        // here, from a posted runnable. Re-running it now that the reading is
+        // there is what keeps the row from staying overlapped until something
+        // else happens to lay it out again, which on device is exactly what it
+        // did: the first pass read a zero strip and left the last icon in place.
+        final View icons = iconContainerIn(container);
+        if (icons instanceof ViewGroup) {
+            hideOverflowingIcons((ViewGroup) icons);
+        }
         // The reading is not part of this view's geometry: the height comes from
         // the battery meter and the width from that height alone, so switching
         // between the one-row and two-row reading - or any SIM falling off the
