@@ -299,7 +299,7 @@ final class TrioHooks {
      * it cannot reach back and keep its own key alive.
      */
     private static final Map<View, int[]> OUT_PAD_SAVED =
-            Collections.synchronizedMap(new WeakHashMap<View, int[]>());
+            Collections.synchronizedMap(new HashMap<View, int[]>());
 
     /** Bounded diagnostic counter for the overflow pass. */
     private static int sHideDiag = 0;
