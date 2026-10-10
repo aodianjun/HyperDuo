@@ -2100,6 +2100,18 @@ final class TrioHooks {
      * and the lock screen's - but not for the copies the shade keeps, which are
      * laid out for the expanded panel and are none of this module's business.
      */
+    /**
+     * How far MIUI has slid the native icon row inward because of the super
+     * island, in pixels, or 0 when no island is up.
+     *
+     * <p>{@code MiuiStatusIconContainer.onLayout} reads this back from its own
+     * island monitor and moves every child that falls inside the island's span
+     * out of the way. It only ever moves its own children - the out-of-ring
+     * reading is this module's view, so nothing moves it - and the reading then
+     * ends up drawn underneath the island while the native icons beside it have
+     * already stepped aside. Reading the same number is what lets the reading
+     * step aside with them.
+     */
     private static boolean isStatusBarRow(View view) {
         for (ViewParent p = view.getParent(); p != null;
              p = (p instanceof View) ? ((View) p).getParent() : null) {
@@ -3753,7 +3765,27 @@ final class TrioHooks {
             }
             final Object value = Refl.invoke(width, monitor);
             final int px = (value instanceof Integer) ? (Integer) value : 0;
-            return (px > 0) ? px : 0;
+            if (px > 0) {
+                return px;
+            }
+            // The monitor's width is the number MIUI is supposed to move the row
+            // by, but it reads empty on this build while a music island is up -
+            // the getBlocked() test above passes and the width still comes back
+            // zero - and the row is demonstrably shifted anyway, which leaves
+            // the reading drawn underneath the island. The container's own
+            // translation is the number it actually laid the row out with, so
+            // fall back to that instead of reporting "no island".
+            final Method used = Refl.method(iconContainer.getClass(), "getIslandTranslationX");
+            if (used != null) {
+                final Object shift = Refl.invoke(used, iconContainer);
+                if (shift instanceof Integer) {
+                    return Math.max(0, ((Integer) shift).intValue());
+                }
+                if (shift instanceof Float) {
+                    return Math.max(0, ((Float) shift).intValue());
+                }
+            }
+            return 0;
         } catch (Throwable ignored) {
             // A missing field or a renamed getter only costs the shift; the
             // label still lands on the anchor, so there is nothing to report.
