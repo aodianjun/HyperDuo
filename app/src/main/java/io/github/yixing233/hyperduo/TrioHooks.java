@@ -334,16 +334,8 @@ final class TrioHooks {
      * one icon per pass. The remembered width keeps every hidden child in the
      * sum it belongs to.
      */
-    /**
-     * The right edge each child was last drawn at.
-     *
-     * <p>Only used to order the row: the visual order of the children is what
-     * decides which of them is the one that has to give way, and that order
-     * cannot be read from the child indices - MIUI re-adds them in whatever
-     * order it likes, so a pass that trusted the indices hid the wrong ones and
-     * left the rightmost icon sitting under the reading.
-     */
-    private static final Map<View, Integer> LAST_RIGHT =
+    /** The left edge each child was last drawn at, in the row's parent. */
+    private static final Map<View, Integer> LAST_LEFT =
             Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
     private static final Map<View, Integer> LAST_WIDTH =
@@ -3892,95 +3884,22 @@ final class TrioHooks {
      * are skipped, and the battery is not in this container to begin with.
      */
     private static void hideOverflowingIcons(ViewGroup container) {
-        // A zero strip is not a reason to skip the pass. MIUI squeezes the row on
-        // its own as soon as the icons stop fitting - its overflow walk never
-        // stores the width it accumulates, so nothing is ever hidden by it - and
-        // that squeeze is what draws two icons on top of each other. With nothing
-        // reserved the boundary is simply the container's own right edge.
-        // The reading is not a child of this row: it is mounted in the battery
-        // container, which is this row's parent, so the strip has to be measured
-        // there. Asking this container returns zero every time, which is what
-        // left the boundary at the row's own edge - and the last icon, sitting
-        // exactly on that edge, then landed on top of the reading.
         final Object owner = batteryContainerOf(container);
-        int reserve = (owner instanceof ViewGroup)
-                ? outRingStripWidth((ViewGroup) owner)
-                : 0;
-        // The reading is the only source that is right about this row. The
-        // padding belongs to whichever row the reservation ran on - with two
-        // rows on screen (the bar's and the lock screen's) that is often not
-        // this one - and a remembered width outlives the reading it was
-        // measured for, which is how an icon that had already stepped aside
-        // came back: a pass that read zero put it back, and if no further pass
-        // followed, it stayed back. A row with no reading mounted has nothing
-        // to overlap, so it hides nothing.
-        if (sDiagHideEntry < 40) {
-            sDiagHideEntry++;
-            log(LOG_INFO, "hideEntry: reserve=" + reserve
-                    + " padR=" + container.getPaddingRight()
-                    + " w=" + container.getWidth()
-                    + " id=" + System.identityHashCode(container)
-                    + " kg=" + isKeyguardRow(container));
+        if (!(owner instanceof ViewGroup)) {
+            return;
         }
-        // Walk the row from right to left keeping a running left edge: first the
-        // reserved strip, then the left edge of whatever has already been kept.
-        // A child whose right edge crosses that boundary is drawn on top of its
-        // neighbour, which is exactly the overlap this pass exists to remove.
-        // The reserved strip alone is not enough: when the native layout runs
-        // out of room it squeezes the row, so two neighbours can overlap well
-        // inside the strip limit. The row positions its children with a
-        // translation, so the drawn box (left/right plus translationX) is what
-        // has to be compared, never the layout box.
-        final int count = container.getChildCount();
-        final List<View> children = new ArrayList<View>(count);
-        for (int i = 0; i < count; i++) {
-            try {
-                final View child = container.getChildAt(i);
-                if (child != null) {
-                    children.add(child);
-                }
-            } catch (Throwable ignored) {
-                // never let one child abort the pass
-            }
-        }
-        final StringBuilder decision = new StringBuilder();
-        for (int i = 0; i < container.getChildCount(); i++) {
-            final View c = container.getChildAt(i);
-            if (c == null || isModuleOwned(c)) {
-                continue;
-            }
-            if (c.getVisibility() == View.GONE && !isCollapsed(c)) {
-                continue;
-            }
-            decision.append(slotOf(c)).append('=').append(c.getVisibility()).append(' ');
-        }
-        final String line = decision.toString();
-        final String previous = LAST_DECISION.get(container);
-        if (debugLog() && !line.equals(previous)) {
-            LAST_DECISION.put(container, line);
-            log(LOG_INFO, "row: w=" + container.getWidth()
-                    + " reserve=" + reserve
-                    + " limit=" + (container.getWidth() - reserve)
-                    + " kg=" + isKeyguardRow(container)
-                    + " | " + line);
-        }
-        // Walk the row the way the row lays itself out: right to left, in
-        // descending child order, giving each child the width it measured and
-        // stacking them against the container's right edge. The positions are
-        // computed rather than read back, because reading them back makes the
-        // decision depend on its own result - hiding the last icon makes MIUI
-        // lay the remaining ones out further right, which makes the next pass
-        // hide the one after that, and the row empties itself one icon per
-        // pass. A child this pass hid still counts with the width it had, so
-        // every pass decides the same set.
-        final int limit = container.getWidth() - reserve;
-        // Decide from where each child is actually drawn, which is the only
-        // thing that says whether it is under the reading. A child that crosses
-        // the boundary is hidden; the rightmost one crosses first, so the icon
-        // that has to give way can never be missed - which is what ordering the
-        // row by anything else got wrong. A child this pass hid is judged by the
-        // edge it was last drawn at, so it comes back when the boundary moves
-        // out past it again and stays put otherwise.
+        final ViewGroup battery = (ViewGroup) owner;
+        // What the module draws beside the row, in the coordinates they share:
+        // the reading and the label are children of the battery container, and
+        // so is this row. Anything the row draws across one of those boxes is
+        // drawn underneath it, and that is the whole test - a boundary derived
+        // from a reserved width is only ever an approximation of where those
+        // views ended up, and it is wrong whenever the row is translated (the
+        // island does exactly that) or the strip is measured for another row.
+        final List<int[]> boxes = new ArrayList<int[]>();
+        collectBox(boxes, findOutSignal(battery));
+        collectBox(boxes, findOutTypeLabel(battery));
+        final int rowLeft = container.getLeft() + Math.round(container.getTranslationX());
         for (int i = 0; i < container.getChildCount(); i++) {
             final View child;
             try {
@@ -3994,20 +3913,17 @@ final class TrioHooks {
             final boolean ours = isCollapsed(child);
             if (child.getVisibility() == View.VISIBLE) {
                 final int w = child.getMeasuredWidth();
-                if (w > 0) {
-                    LAST_WIDTH.put(child, Integer.valueOf(w));
+                if (w <= 0) {
+                    continue;
                 }
-                final int right = (int) drawnRight(child);
-                if (w > 0) {
-                    LAST_RIGHT.put(child, Integer.valueOf(right));
-                }
-                if (w > 0 && right > limit) {
-                    if (markCollapsed(child)) {
-                        try {
-                            child.setVisibility(View.GONE);
-                        } catch (Throwable ignored) {
-                            // never let one child abort the pass
-                        }
+                LAST_WIDTH.put(child, Integer.valueOf(w));
+                final int left = rowLeft + child.getLeft() + Math.round(child.getTranslationX());
+                LAST_LEFT.put(child, Integer.valueOf(left));
+                if (overlaps(boxes, left, left + w) && markCollapsed(child)) {
+                    try {
+                        child.setVisibility(View.GONE);
+                    } catch (Throwable ignored) {
+                        // never let one child abort the pass
                     }
                 }
                 continue;
@@ -4015,17 +3931,61 @@ final class TrioHooks {
             if (!ours) {
                 continue;
             }
-            final Integer last = LAST_RIGHT.get(child);
-            if (last != null && last.intValue() <= limit) {
-                if (unmarkCollapsed(child)) {
-                    try {
-                        child.setVisibility(View.VISIBLE);
-                    } catch (Throwable ignored) {
-                        // never let one child abort the pass
-                    }
+            final Integer lastLeft = LAST_LEFT.get(child);
+            final Integer lastWidth = LAST_WIDTH.get(child);
+            final boolean clear = (lastLeft == null || lastWidth == null)
+                    || !overlaps(boxes, lastLeft.intValue(),
+                            lastLeft.intValue() + lastWidth.intValue());
+            if (clear && unmarkCollapsed(child)) {
+                try {
+                    child.setVisibility(View.VISIBLE);
+                } catch (Throwable ignored) {
+                    // never let one child abort the pass
                 }
             }
         }
+        final StringBuilder decision = new StringBuilder();
+        for (int i = 0; i < boxes.size(); i++) {
+            decision.append('[').append(boxes.get(i)[0]).append('..')
+                    .append(boxes.get(i)[1]).append(']');
+        }
+        for (int i = 0; i < container.getChildCount(); i++) {
+            final View c = container.getChildAt(i);
+            if (c == null || isModuleOwned(c)) {
+                continue;
+            }
+            if (c.getVisibility() == View.GONE && !isCollapsed(c)) {
+                continue;
+            }
+            decision.append(' ').append(slotOf(c)).append('=').append(c.getVisibility());
+        }
+        final String line = decision.toString();
+        final String previous = LAST_DECISION.get(container);
+        if (debugLog() && !line.equals(previous)) {
+            LAST_DECISION.put(container, line);
+            log(LOG_INFO, "row: boxes=" + (boxes.isEmpty() ? "none" : "")
+                    + " kg=" + isKeyguardRow(container) + " |" + line);
+        }
+    }
+
+    /** Records where {@code v} is drawn, in its parent's coordinates. */
+    private static void collectBox(List<int[]> out, View v) {
+        if (v == null || v.getVisibility() != View.VISIBLE || v.getWidth() <= 0) {
+            return;
+        }
+        final int left = v.getLeft() + Math.round(v.getTranslationX());
+        out.add(new int[] {left, left + v.getWidth()});
+    }
+
+    /** True when {@code [left, right)} crosses any of the recorded boxes. */
+    private static boolean overlaps(List<int[]> boxes, int left, int right) {
+        for (int i = 0; i < boxes.size(); i++) {
+            final int[] box = boxes.get(i);
+            if (left < box[1] && right > box[0]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when the overflow pass is the one hiding this child. */
