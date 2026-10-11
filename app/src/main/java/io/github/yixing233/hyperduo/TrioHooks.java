@@ -3840,60 +3840,156 @@ final class TrioHooks {
             return;
         }
         final ViewGroup battery = (ViewGroup) owner;
-        // What the module draws beside the row, in the coordinates they share:
-        // the reading and the label are children of the battery container, and
-        // so is this row. Anything the row draws across one of those boxes is
-        // drawn underneath it, and that is the whole test - a boundary derived
-        // from a reserved width is only ever an approximation of where those
-        // views ended up, and it is wrong whenever the row is translated (the
-        // island does exactly that) or the strip is measured for another row.
         final List<int[]> boxes = new ArrayList<int[]>();
         collectBox(boxes, findOutSignal(battery));
         collectBox(boxes, findOutTypeLabel(battery));
-        final int rowLeft = container.getLeft() + Math.round(container.getTranslationX());
+        if (boxes.isEmpty()) {
+            // Nothing is drawn beside the row: hand everything back and let it
+            // sit where MIUI put it.
+            releaseRow(container);
+            return;
+        }
+        int leftMost = Integer.MAX_VALUE;
+        for (int i = 0; i < boxes.size(); i++) {
+            leftMost = Math.min(leftMost, boxes.get(i)[0]);
+        }
+        // Everything below is worked out from the row's layout box, never from
+        // where it is drawn: the shift this pass applies moves the drawn box,
+        // and a decision that read it back would chase its own tail.
+        final int room = Math.max(0, leftMost - container.getLeft());
+
+        final List<View> shown = new ArrayList<View>();
+        int total = 0;
         for (int i = 0; i < container.getChildCount(); i++) {
-            final View child;
-            try {
-                child = container.getChildAt(i);
-            } catch (Throwable t) {
+            final View child = childAt(container, i);
+            if (child == null || isModuleOwned(child) || child.getVisibility() != View.VISIBLE) {
                 continue;
             }
-            if (child == null || isModuleOwned(child)) {
+            final int w = child.getMeasuredWidth();
+            if (w <= 0) {
                 continue;
             }
-            final boolean ours = isCollapsed(child);
-            if (child.getVisibility() == View.VISIBLE) {
-                final int w = child.getMeasuredWidth();
-                if (w <= 0) {
-                    continue;
+            remember(child, w);
+            shown.add(child);
+            total += w;
+        }
+        // Give up only as much as the reading actually needs: the row is a
+        // fixed width and the reading takes its end, so what is left has to fit
+        // in the room before it. Icons are dropped from the right, which is
+        // where the reading is.
+        sortByDrawnRight(shown);
+        for (int i = 0; i < shown.size() && total > room; i++) {
+            final View child = shown.get(i);
+            final Integer w = LAST_WIDTH.get(child);
+            if (w == null) {
+                continue;
+            }
+            if (markCollapsed(child)) {
+                try {
+                    child.setVisibility(View.GONE);
+                } catch (Throwable ignored) {
+                    // never let one child abort the pass
                 }
-                LAST_WIDTH.put(child, Integer.valueOf(w));
-                final int left = rowLeft + child.getLeft() + Math.round(child.getTranslationX());
-                LAST_LEFT.put(child, Integer.valueOf(left));
-                if (overlaps(boxes, left, left + w) && markCollapsed(child)) {
-                    try {
-                        child.setVisibility(View.GONE);
-                    } catch (Throwable ignored) {
-                        // never let one child abort the pass
-                    }
-                }
+            }
+            total -= w.intValue();
+        }
+        // Hand back whatever fits again, rightmost first, so the row returns to
+        // its full set as soon as the reading stops needing the space.
+        final List<View> hidden = new ArrayList<View>();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            final View child = childAt(container, i);
+            if (child == null || isModuleOwned(child) || !isCollapsed(child)) {
                 continue;
             }
-            if (!ours) {
+            hidden.add(child);
+        }
+        sortByDrawnRight(hidden);
+        for (int i = 0; i < hidden.size(); i++) {
+            final View child = hidden.get(i);
+            final Integer w = LAST_WIDTH.get(child);
+            if (w == null || total + w.intValue() > room) {
                 continue;
             }
-            final Integer lastLeft = LAST_LEFT.get(child);
-            final Integer lastWidth = LAST_WIDTH.get(child);
-            final boolean clear = (lastLeft == null || lastWidth == null)
-                    || !overlaps(boxes, lastLeft.intValue(),
-                            lastLeft.intValue() + lastWidth.intValue());
-            if (clear && unmarkCollapsed(child)) {
+            if (unmarkCollapsed(child)) {
                 try {
                     child.setVisibility(View.VISIBLE);
                 } catch (Throwable ignored) {
                     // never let one child abort the pass
                 }
             }
+            total += w.intValue();
+        }
+        // Slide the row so its end stops where the reading begins. MIUI lays the
+        // row out to the container's full width - the end padding this module
+        // grows is not what it lays out from on this build - so without the
+        // shift the icons sit under the reading again on the next layout and the
+        // pass has to drop one more of them, which is how the bar emptied itself
+        // an icon at a time. The island already slides the row's children, so
+        // its shift is added back rather than fought with.
+        final float shift = islandShiftPx(container) - (container.getWidth() - room);
+        if (container.getTranslationX() != shift) {
+            container.setTranslationX(shift);
+        }
+    }
+
+    /** Records where a child was measured and drawn, for the next pass. */
+    private static void remember(View child, int width) {
+        LAST_WIDTH.put(child, Integer.valueOf(width));
+        LAST_LEFT.put(child, Integer.valueOf(
+                child.getLeft() + Math.round(child.getTranslationX())));
+    }
+
+    /** Right edge of a child as last known, in the row's own coordinates. */
+    private static int rightOf(View v) {
+        if (v.getVisibility() == View.VISIBLE) {
+            return (int) (v.getLeft() + v.getTranslationX()) + v.getMeasuredWidth();
+        }
+        final Integer left = LAST_LEFT.get(v);
+        final Integer width = LAST_WIDTH.get(v);
+        if (left == null || width == null) {
+            return 0;
+        }
+        return left.intValue() + width.intValue();
+    }
+
+    private static void sortByDrawnRight(List<View> views) {
+        try {
+            Collections.sort(views, new Comparator<View>() {
+                @Override
+                public int compare(View a, View b) {
+                    return Integer.compare(rightOf(b), rightOf(a));
+                }
+            });
+        } catch (Throwable ignored) {
+            // the order only decides which icon yields, never whether one does
+        }
+    }
+
+    private static View childAt(ViewGroup group, int index) {
+        try {
+            return group.getChildAt(index);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** Hands every child this pass hid back, and un-shifts the row. */
+    private static void releaseRow(ViewGroup container) {
+        for (int i = 0; i < container.getChildCount(); i++) {
+            final View child = childAt(container, i);
+            if (child == null || isModuleOwned(child) || !isCollapsed(child)) {
+                continue;
+            }
+            if (unmarkCollapsed(child)) {
+                try {
+                    child.setVisibility(View.VISIBLE);
+                } catch (Throwable ignored) {
+                    // never let one child abort the pass
+                }
+            }
+        }
+        if (container.getTranslationX() != 0f) {
+            container.setTranslationX(0f);
         }
     }
 
@@ -3904,17 +4000,6 @@ final class TrioHooks {
         }
         final int left = v.getLeft() + Math.round(v.getTranslationX());
         out.add(new int[] {left, left + v.getWidth()});
-    }
-
-    /** True when {@code [left, right)} crosses any of the recorded boxes. */
-    private static boolean overlaps(List<int[]> boxes, int left, int right) {
-        for (int i = 0; i < boxes.size(); i++) {
-            final int[] box = boxes.get(i);
-            if (left < box[1] && right > box[0]) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** True when the overflow pass is the one hiding this child. */
