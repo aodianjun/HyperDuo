@@ -3840,120 +3840,63 @@ final class TrioHooks {
             return;
         }
         final ViewGroup battery = (ViewGroup) owner;
+        // What the module draws beside the row, in the coordinates they share:
+        // the reading and the label are children of the battery container, and
+        // so is this row.
         final List<int[]> boxes = new ArrayList<int[]>();
         collectBox(boxes, findOutSignal(battery));
         collectBox(boxes, findOutTypeLabel(battery));
-        if (boxes.isEmpty()) {
-            // Nothing is drawn beside the row: hand everything back.
-            releaseRow(container);
-            return;
-        }
-        int leftMost = Integer.MAX_VALUE;
-        for (int i = 0; i < boxes.size(); i++) {
-            leftMost = Math.min(leftMost, boxes.get(i)[0]);
-        }
-        // The room the row has before the reading starts. Worked out from the
-        // row's layout box, which none of this touches - only the children's
-        // alpha changes - so the answer cannot depend on the previous pass.
-        final int room = Math.max(0, leftMost - container.getLeft());
-
-        final List<View> shown = new ArrayList<View>();
-        int total = 0;
+        final int rowBase = container.getLeft() + Math.round(container.getTranslationX());
         for (int i = 0; i < container.getChildCount(); i++) {
             final View child = childAt(container, i);
-            if (child == null || isModuleOwned(child) || isCollapsed(child)) {
+            if (child == null || isModuleOwned(child)) {
                 continue;
             }
-            if (child.getVisibility() != View.VISIBLE) {
-                continue;
-            }
-            final int w = child.getMeasuredWidth();
-            if (w <= 0) {
-                continue;
-            }
-            remember(child, w);
-            shown.add(child);
-            total += w;
-        }
-        // Give up only as much as the reading actually needs, from the right -
-        // which is where the reading is - and only in alpha, never in layout:
-        // a child that leaves the layout makes MIUI lay the rest out further
-        // right, into the reading again, and the next pass gives up one more.
-        // Fading it out keeps every child where MIUI put it.
-        sortByDrawnRight(shown);
-        for (int i = 0; i < shown.size() && total > room; i++) {
-            final View child = shown.get(i);
-            final Integer w = LAST_WIDTH.get(child);
-            if (w == null) {
-                continue;
-            }
-            if (markCollapsed(child)) {
-                try {
-                    child.setAlpha(0f);
-                } catch (Throwable ignored) {
-                    // never let one child abort the pass
+            final boolean faded = isCollapsed(child);
+            if (child.getVisibility() == View.VISIBLE) {
+                final int w = child.getMeasuredWidth();
+                if (w <= 0) {
+                    continue;
                 }
-            }
-            total -= w.intValue();
-        }
-        // Bring back whatever fits again, rightmost first, so the row returns to
-        // its full set as soon as the reading stops needing the space.
-        final List<View> faded = new ArrayList<View>();
-        for (int i = 0; i < container.getChildCount(); i++) {
-            final View child = childAt(container, i);
-            if (child == null || isModuleOwned(child) || !isCollapsed(child)) {
-                continue;
-            }
-            faded.add(child);
-        }
-        sortByDrawnRight(faded);
-        for (int i = 0; i < faded.size(); i++) {
-            final View child = faded.get(i);
-            final Integer w = LAST_WIDTH.get(child);
-            if (w == null || total + w.intValue() > room) {
-                continue;
-            }
-            if (unmarkCollapsed(child)) {
-                try {
-                    child.setAlpha(1f);
-                } catch (Throwable ignored) {
-                    // never let one child abort the pass
+                final int left = rowBase + child.getLeft() + Math.round(child.getTranslationX());
+                LAST_WIDTH.put(child, Integer.valueOf(w));
+                LAST_LEFT.put(child, Integer.valueOf(left));
+                if (overlaps(boxes, left, left + w) && markCollapsed(child)) {
+                    fade(child, 0f);
                 }
+                continue;
             }
-            total += w.intValue();
+            if (!faded) {
+                continue;
+            }
+            final Integer lastLeft = LAST_LEFT.get(child);
+            final Integer lastWidth = LAST_WIDTH.get(child);
+            final boolean clear = (lastLeft == null || lastWidth == null)
+                    || !overlaps(boxes, lastLeft.intValue(),
+                            lastLeft.intValue() + lastWidth.intValue());
+            if (clear && unmarkCollapsed(child)) {
+                fade(child, 1f);
+            }
         }
     }
 
-    /** Records where a child was measured and drawn, for the next pass. */
-    private static void remember(View child, int width) {
-        LAST_WIDTH.put(child, Integer.valueOf(width));
-        LAST_LEFT.put(child, Integer.valueOf(
-                child.getLeft() + Math.round(child.getTranslationX())));
-    }
-
-    /** Right edge of a child as last known, in the row's own coordinates. */
-    private static int rightOf(View v) {
-        if (!isCollapsed(v)) {
-            return (int) (v.getLeft() + v.getTranslationX()) + v.getMeasuredWidth();
-        }
-        final Integer left = LAST_LEFT.get(v);
-        final Integer width = LAST_WIDTH.get(v);
-        if (left == null || width == null) {
-            return 0;
-        }
-        return left.intValue() + width.intValue();
-    }
-
-    private static void sortByDrawnRight(List<View> views) {
+    /**
+     * Takes a child out of sight without taking it out of the layout.
+     *
+     * <p>Alpha rather than {@code GONE}: a child that leaves the layout makes
+     * MIUI lay the rest of the row out again, further right, which puts the next
+     * icon under the reading and has this pass fade that one too - one icon per
+     * layout. Fading keeps every child exactly where MIUI put it, so the pass
+     * decides the same set on every pass and nothing has to be slid around to
+     * compensate.
+     */
+    private static void fade(View child, float alpha) {
         try {
-            Collections.sort(views, new Comparator<View>() {
-                @Override
-                public int compare(View a, View b) {
-                    return Integer.compare(rightOf(b), rightOf(a));
-                }
-            });
+            if (child.getAlpha() != alpha) {
+                child.setAlpha(alpha);
+            }
         } catch (Throwable ignored) {
-            // the order only decides which icon yields, never whether one does
+            // never let one child abort the pass
         }
     }
 
@@ -3965,23 +3908,6 @@ final class TrioHooks {
         }
     }
 
-    /** Gives every child this pass faded out its alpha back. */
-    private static void releaseRow(ViewGroup container) {
-        for (int i = 0; i < container.getChildCount(); i++) {
-            final View child = childAt(container, i);
-            if (child == null || isModuleOwned(child) || !isCollapsed(child)) {
-                continue;
-            }
-            if (unmarkCollapsed(child)) {
-                try {
-                    child.setAlpha(1f);
-                } catch (Throwable ignored) {
-                    // never let one child abort the pass
-                }
-            }
-        }
-    }
-
     /** Records where {@code v} is drawn, in its parent's coordinates. */
     private static void collectBox(List<int[]> out, View v) {
         if (v == null || v.getVisibility() != View.VISIBLE || v.getWidth() <= 0) {
@@ -3989,6 +3915,17 @@ final class TrioHooks {
         }
         final int left = v.getLeft() + Math.round(v.getTranslationX());
         out.add(new int[] {left, left + v.getWidth()});
+    }
+
+    /** True when {@code [left, right)} crosses any of the recorded boxes. */
+    private static boolean overlaps(List<int[]> boxes, int left, int right) {
+        for (int i = 0; i < boxes.size(); i++) {
+            final int[] box = boxes.get(i);
+            if (left < box[1] && right > box[0]) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** True when the overflow pass is the one hiding this child. */
