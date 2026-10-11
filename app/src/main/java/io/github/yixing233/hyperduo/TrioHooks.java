@@ -301,48 +301,10 @@ final class TrioHooks {
     private static final Map<View, int[]> OUT_PAD_SAVED =
             Collections.synchronizedMap(new HashMap<View, int[]>());
 
-    /** Bounded diagnostic counter for the overflow pass. */
-    private static int sHideDiag = 0;
 
-    /** Bounded diagnostic counter for the ownership check. */
-    private static int sOwnedDiag = 0;
 
-    /** Bounded counter for the overflow entry log. */
-    private static int sDiagHideEntry = 0;
 
-    /** Last decision logged per row, so the log fires on change only. */
-    private static final Map<View, String> LAST_DECISION =
-            Collections.synchronizedMap(new WeakHashMap<View, String>());
 
-    /**
-     * The last non-zero strip measured per row.
-     *
-     * <p>The reading is torn down and re-mounted whenever MIUI rearranges the
-     * bar - a super island appearing does exactly that - and for the layout
-     * passes in between there is nothing to measure. Reading zero then collapses
-     * the boundary back to the row's own edge and hands the last icon its place
-     * back, which is how the overlap returned after it had been fixed. A
-     * remembered width bridges that gap; when the reading is gone for good,
-     * nothing refreshes the entry and it ages out with the row.
-     */
-    /**
-     * The width each child last measured at.
-     *
-     * <p>A child this pass hid is gone from the layout, so asking it for its
-     * width afterwards answers zero - and a zero width would drop it out of the
-     * running total the pass stacks up, which is what let the row empty itself
-     * one icon per pass. The remembered width keeps every hidden child in the
-     * sum it belongs to.
-     */
-    /** The left edge each child was last drawn at, in the row's parent. */
-    private static final Map<View, Integer> LAST_LEFT =
-            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
-
-    private static final Map<View, Integer> LAST_WIDTH =
-            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
-
-    private static final Map<View, Integer> LAST_STRIP =
-            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
     /** Hard cap on total child dumps, so a layout loop cannot flood the log. */
     private static volatile int sDiagDumps;
@@ -2607,27 +2569,6 @@ final class TrioHooks {
             return false;
         }
         final View owner = batteryContainerOf((View) container);
-        if (sOwnedDiag < 200) {
-            sOwnedDiag++;
-            String decl;
-            try {
-                final Object d = (owner == null) ? null : Refl.get(sStatusIconField, owner);
-                decl = (d == null) ? "null" : ((d == container) ? "same" : d.getClass().getSimpleName());
-            } catch (Throwable t) {
-                decl = "err:" + t.getClass().getSimpleName();
-            }
-            String live;
-            try {
-                live = String.valueOf(owner != null && holdsLiveHost(owner));
-            } catch (Throwable t) {
-                live = "err:" + t.getClass().getSimpleName();
-            }
-            log(LOG_INFO, "isOwned: c=" + container.getClass().getSimpleName()
-                    + " owner=" + (owner == null ? "null" : owner.getClass().getSimpleName())
-                    + " decl=" + decl + " live=" + live
-                    + " kg=" + isKeyguardRow((View) container)
-                    + " fieldNull=" + (sStatusIconField == null));
-        }
         if (owner == null) {
             return false;
         }
@@ -3863,10 +3804,7 @@ final class TrioHooks {
         if (debugLog()) {
             log(LOG_INFO, "out type: reserved " + reserve + "px, icon padding "
                     + saved[0] + "/" + saved[1] + " -> " + left + "/" + right
-                    + ", icons w=" + icons.getWidth()
-                    + " id=" + System.identityHashCode(icons)
-                    + " cls=" + icons.getClass().getSimpleName()
-                    + " mapSize=" + OUT_PAD_SAVED.size());
+                    + ", icons w=" + icons.getWidth());
         }
     }
 
@@ -3944,28 +3882,6 @@ final class TrioHooks {
                 }
             }
         }
-        final StringBuilder decision = new StringBuilder();
-        for (int i = 0; i < boxes.size(); i++) {
-            decision.append('[').append(boxes.get(i)[0]).append("..")
-                    .append(boxes.get(i)[1]).append(']');
-        }
-        for (int i = 0; i < container.getChildCount(); i++) {
-            final View c = container.getChildAt(i);
-            if (c == null || isModuleOwned(c)) {
-                continue;
-            }
-            if (c.getVisibility() == View.GONE && !isCollapsed(c)) {
-                continue;
-            }
-            decision.append(' ').append(slotOf(c)).append('=').append(c.getVisibility());
-        }
-        final String line = decision.toString();
-        final String previous = LAST_DECISION.get(container);
-        if (debugLog() && !line.equals(previous)) {
-            LAST_DECISION.put(container, line);
-            log(LOG_INFO, "row: boxes=" + (boxes.isEmpty() ? "none" : "")
-                    + " kg=" + isKeyguardRow(container) + " |" + line);
-        }
     }
 
     /** Records where {@code v} is drawn, in its parent's coordinates. */
@@ -3995,15 +3911,7 @@ final class TrioHooks {
         }
     }
 
-    /** Left edge as drawn on screen, translation included. */
-    private static float drawnLeft(View v) {
-        return v.getLeft() + v.getTranslationX();
-    }
 
-    /** Right edge as drawn on screen, translation included. */
-    private static float drawnRight(View v) {
-        return v.getRight() + v.getTranslationX();
-    }
 
     /**
      * True for the views this module draws itself, plus the slots it has taken
@@ -4408,15 +4316,6 @@ final class TrioHooks {
             // against the label and the outward margin did nothing at all while
             // the reading was on screen.
             total += label.getMeasuredWidth() + labelInward + labelOutward;
-        }
-        if (total <= 0 && outSignalWanted()) {
-            final Integer last = LAST_STRIP.get(container);
-            if (last != null) {
-                total = last.intValue();
-            }
-        }
-        if (total > 0) {
-            LAST_STRIP.put(container, Integer.valueOf(total));
         }
         return total;
     }
