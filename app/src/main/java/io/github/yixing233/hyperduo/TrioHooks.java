@@ -3865,21 +3865,23 @@ final class TrioHooks {
                 final int left = rowBase + child.getLeft() + Math.round(child.getTranslationX());
                 LAST_WIDTH.put(child, Integer.valueOf(w));
                 LAST_LEFT.put(child, Integer.valueOf(left));
-                if (overlaps(boxes, left, left + w) && markCollapsed(child)) {
+                if (overlaps(boxes, left, left + w)) {
+                    // Bookkeeping only decides who is allowed to hand a child
+                    // back. The alpha itself is re-applied on every pass, not
+                    // once: MIUI puts a child's alpha back on its own schedule,
+                    // and gating this on "first time only" left the icon drawn
+                    // again with nothing to fade it a second time.
+                    markCollapsed(child);
                     fade(child, 0f);
+                } else if (faded && unmarkCollapsed(child)) {
+                    fade(child, 1f);
                 }
                 continue;
             }
-            if (!faded) {
-                continue;
-            }
-            final Integer lastLeft = LAST_LEFT.get(child);
-            final Integer lastWidth = LAST_WIDTH.get(child);
-            final boolean clear = (lastLeft == null || lastWidth == null)
-                    || !overlaps(boxes, lastLeft.intValue(),
-                            lastLeft.intValue() + lastWidth.intValue());
-            if (clear && unmarkCollapsed(child)) {
-                fade(child, 1f);
+            if (faded) {
+                // MIUI is hiding it for its own reasons; drop our record and
+                // leave the visibility alone.
+                unmarkCollapsed(child);
             }
         }
         if (debugLog()) {
