@@ -301,8 +301,21 @@ final class TrioHooks {
     private static final Map<View, int[]> OUT_PAD_SAVED =
             Collections.synchronizedMap(new HashMap<View, int[]>());
 
+    /**
+     * What the overflow pass remembers about each child between passes: the
+     * width it measured at, and the left edge it was last drawn at, both in the
+     * row's parent's coordinates.
+     *
+     * <p>A child the pass hid is gone from the layout, so asking it for either
+     * afterwards answers zero - and a zero width would drop it out of the sum
+     * the pass is judging. The remembered values are what let a hidden child be
+     * judged by the same geometry that hid it.
+     */
+    private static final Map<View, Integer> LAST_WIDTH =
+            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
-
+    private static final Map<View, Integer> LAST_LEFT =
+            Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
 
 
