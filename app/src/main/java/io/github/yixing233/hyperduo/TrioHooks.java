@@ -311,6 +311,10 @@ final class TrioHooks {
      * the pass is judging. The remembered values are what let a hidden child be
      * judged by the same geometry that hid it.
      */
+    /** Last row decision logged, so the log fires on change only. */
+    private static final Map<View, String> LAST_DECISION =
+            Collections.synchronizedMap(new WeakHashMap<View, String>());
+
     private static final Map<View, Integer> LAST_WIDTH =
             Collections.synchronizedMap(new WeakHashMap<View, Integer>());
 
@@ -3876,6 +3880,38 @@ final class TrioHooks {
                             lastLeft.intValue() + lastWidth.intValue());
             if (clear && unmarkCollapsed(child)) {
                 fade(child, 1f);
+            }
+        }
+        if (debugLog()) {
+            final StringBuilder sb = new StringBuilder();
+            sb.append("row id=").append(System.identityHashCode(container))
+                    .append(" kg=").append(isKeyguardRow(container))
+                    .append(" base=").append(rowBase)
+                    .append(" w=").append(container.getWidth())
+                    .append(" boxes=");
+            for (int i = 0; i < boxes.size(); i++) {
+                sb.append('[').append(boxes.get(i)[0]).append("..")
+                        .append(boxes.get(i)[1]).append(']');
+            }
+            for (int i = 0; i < container.getChildCount(); i++) {
+                final View c = childAt(container, i);
+                if (c == null || isModuleOwned(c) || c.getVisibility() != View.VISIBLE) {
+                    continue;
+                }
+                if (c.getMeasuredWidth() <= 0 && !isCollapsed(c)) {
+                    continue;
+                }
+                sb.append(' ').append(slotOf(c))
+                        .append('@').append(rowBase + c.getLeft()
+                                + Math.round(c.getTranslationX()))
+                        .append('+').append(c.getMeasuredWidth())
+                        .append(" a=").append(c.getAlpha());
+            }
+            final String line = sb.toString();
+            final String previous = LAST_DECISION.get(container);
+            if (!line.equals(previous)) {
+                LAST_DECISION.put(container, line);
+                log(LOG_INFO, line);
             }
         }
     }
