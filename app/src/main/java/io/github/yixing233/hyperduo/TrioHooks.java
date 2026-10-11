@@ -3844,8 +3844,7 @@ final class TrioHooks {
         collectBox(boxes, findOutSignal(battery));
         collectBox(boxes, findOutTypeLabel(battery));
         if (boxes.isEmpty()) {
-            // Nothing is drawn beside the row: hand everything back and let it
-            // sit where MIUI put it.
+            // Nothing is drawn beside the row: hand everything back.
             releaseRow(container);
             return;
         }
@@ -3853,16 +3852,19 @@ final class TrioHooks {
         for (int i = 0; i < boxes.size(); i++) {
             leftMost = Math.min(leftMost, boxes.get(i)[0]);
         }
-        // Everything below is worked out from the row's layout box, never from
-        // where it is drawn: the shift this pass applies moves the drawn box,
-        // and a decision that read it back would chase its own tail.
+        // The room the row has before the reading starts. Worked out from the
+        // row's layout box, which none of this touches - only the children's
+        // alpha changes - so the answer cannot depend on the previous pass.
         final int room = Math.max(0, leftMost - container.getLeft());
 
         final List<View> shown = new ArrayList<View>();
         int total = 0;
         for (int i = 0; i < container.getChildCount(); i++) {
             final View child = childAt(container, i);
-            if (child == null || isModuleOwned(child) || child.getVisibility() != View.VISIBLE) {
+            if (child == null || isModuleOwned(child) || isCollapsed(child)) {
+                continue;
+            }
+            if (child.getVisibility() != View.VISIBLE) {
                 continue;
             }
             final int w = child.getMeasuredWidth();
@@ -3873,10 +3875,11 @@ final class TrioHooks {
             shown.add(child);
             total += w;
         }
-        // Give up only as much as the reading actually needs: the row is a
-        // fixed width and the reading takes its end, so what is left has to fit
-        // in the room before it. Icons are dropped from the right, which is
-        // where the reading is.
+        // Give up only as much as the reading actually needs, from the right -
+        // which is where the reading is - and only in alpha, never in layout:
+        // a child that leaves the layout makes MIUI lay the rest out further
+        // right, into the reading again, and the next pass gives up one more.
+        // Fading it out keeps every child where MIUI put it.
         sortByDrawnRight(shown);
         for (int i = 0; i < shown.size() && total > room; i++) {
             final View child = shown.get(i);
@@ -3886,49 +3889,38 @@ final class TrioHooks {
             }
             if (markCollapsed(child)) {
                 try {
-                    child.setVisibility(View.GONE);
+                    child.setAlpha(0f);
                 } catch (Throwable ignored) {
                     // never let one child abort the pass
                 }
             }
             total -= w.intValue();
         }
-        // Hand back whatever fits again, rightmost first, so the row returns to
+        // Bring back whatever fits again, rightmost first, so the row returns to
         // its full set as soon as the reading stops needing the space.
-        final List<View> hidden = new ArrayList<View>();
+        final List<View> faded = new ArrayList<View>();
         for (int i = 0; i < container.getChildCount(); i++) {
             final View child = childAt(container, i);
             if (child == null || isModuleOwned(child) || !isCollapsed(child)) {
                 continue;
             }
-            hidden.add(child);
+            faded.add(child);
         }
-        sortByDrawnRight(hidden);
-        for (int i = 0; i < hidden.size(); i++) {
-            final View child = hidden.get(i);
+        sortByDrawnRight(faded);
+        for (int i = 0; i < faded.size(); i++) {
+            final View child = faded.get(i);
             final Integer w = LAST_WIDTH.get(child);
             if (w == null || total + w.intValue() > room) {
                 continue;
             }
             if (unmarkCollapsed(child)) {
                 try {
-                    child.setVisibility(View.VISIBLE);
+                    child.setAlpha(1f);
                 } catch (Throwable ignored) {
                     // never let one child abort the pass
                 }
             }
             total += w.intValue();
-        }
-        // Slide the row so its end stops where the reading begins. MIUI lays the
-        // row out to the container's full width - the end padding this module
-        // grows is not what it lays out from on this build - so without the
-        // shift the icons sit under the reading again on the next layout and the
-        // pass has to drop one more of them, which is how the bar emptied itself
-        // an icon at a time. The island already slides the row's children, so
-        // its shift is added back rather than fought with.
-        final float shift = islandShiftPx(container) - (container.getWidth() - room);
-        if (container.getTranslationX() != shift) {
-            container.setTranslationX(shift);
         }
     }
 
@@ -3941,7 +3933,7 @@ final class TrioHooks {
 
     /** Right edge of a child as last known, in the row's own coordinates. */
     private static int rightOf(View v) {
-        if (v.getVisibility() == View.VISIBLE) {
+        if (!isCollapsed(v)) {
             return (int) (v.getLeft() + v.getTranslationX()) + v.getMeasuredWidth();
         }
         final Integer left = LAST_LEFT.get(v);
@@ -3973,7 +3965,7 @@ final class TrioHooks {
         }
     }
 
-    /** Hands every child this pass hid back, and un-shifts the row. */
+    /** Gives every child this pass faded out its alpha back. */
     private static void releaseRow(ViewGroup container) {
         for (int i = 0; i < container.getChildCount(); i++) {
             final View child = childAt(container, i);
@@ -3982,14 +3974,11 @@ final class TrioHooks {
             }
             if (unmarkCollapsed(child)) {
                 try {
-                    child.setVisibility(View.VISIBLE);
+                    child.setAlpha(1f);
                 } catch (Throwable ignored) {
                     // never let one child abort the pass
                 }
             }
-        }
-        if (container.getTranslationX() != 0f) {
-            container.setTranslationX(0f);
         }
     }
 
